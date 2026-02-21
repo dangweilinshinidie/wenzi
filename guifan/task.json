@@ -1,0 +1,235 @@
+[
+  {
+    "id": "task-001",
+    "description": "规划项目目录结构并初始化 Git 仓库",
+    "steps": [
+      "在 h:/.xiangmu/wenzi/ 下创建以下目录结构：vendor/（存放开源项目）、app/（后端服务代码）、app/services/、tmp/（临时文件）",
+      "执行 git init 初始化仓库",
+      "创建 .gitignore 文件，忽略 vendor/、tmp/、__pycache__/、.env、*.pyc、venv/ 等",
+      "验证目录结构：vendor/、app/、app/services/、tmp/ 均存在",
+      "验证 git status 正常工作"
+    ],
+    "passes": true
+  },
+  {
+    "id": "task-002",
+    "description": "拉取 yt-dlp 开源项目到 vendor 目录",
+    "steps": [
+      "执行 git clone https://github.com/yt-dlp/yt-dlp.git vendor/yt-dlp",
+      "验证 vendor/yt-dlp/ 目录存在且包含源码",
+      "验证 vendor/yt-dlp/yt_dlp/ 核心模块目录存在",
+      "记录当前 clone 的 commit hash 以便追溯版本"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-003",
+    "description": "拉取 FunASR 开源项目到 vendor 目录",
+    "steps": [
+      "执行 git clone https://github.com/modelscope/FunASR.git vendor/FunASR",
+      "验证 vendor/FunASR/ 目录存在且包含源码",
+      "验证 vendor/FunASR/funasr/ 核心模块目录存在",
+      "记录当前 clone 的 commit hash 以便追溯版本"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-004",
+    "description": "安装开源项目依赖和系统工具",
+    "steps": [
+      "从 vendor/yt-dlp 目录安装 yt-dlp：pip install -e vendor/yt-dlp 或 pip install yt-dlp",
+      "从 vendor/FunASR 目录安装 FunASR：pip install -e vendor/FunASR 或 pip install funasr",
+      "安装 FunASR 依赖：pip install torch torchaudio modelscope",
+      "验证 ffmpeg 是否已安装：ffmpeg -version，未安装则安装",
+      "验证 python -c \"import yt_dlp; print(yt_dlp.version.__version__)\" 正常输出版本号",
+      "验证 python -c \"import funasr; print(funasr.__version__)\" 正常输出版本号"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-005",
+    "description": "创建后端项目基础文件",
+    "steps": [
+      "创建 app/__init__.py 和 app/services/__init__.py 空文件",
+      "创建 requirements.txt，包含 fastapi, uvicorn[standard], pydantic-settings, python-dotenv",
+      "创建 .env.example，包含 HOST, PORT, TEMP_DIR, ASR_DEVICE 等配置项",
+      "执行 pip install -r requirements.txt 安装后端框架依赖",
+      "验证所有文件存在且 pip install 无报错"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-006",
+    "description": "实现配置管理模块 app/config.py",
+    "steps": [
+      "创建 app/config.py，使用 pydantic-settings 的 BaseSettings",
+      "定义配置项：HOST, PORT, TEMP_DIR, TEMP_FILE_MAX_AGE, ASR_MODEL, ASR_VAD_MODEL, ASR_PUNC_MODEL, ASR_DEVICE, ASR_BATCH_SIZE_S, DOWNLOAD_TIMEOUT, MAX_TASKS",
+      "支持从 .env 文件和环境变量读取配置",
+      "导出全局 settings 单例",
+      "验证：python -c \"from app.config import settings; print(settings.PORT)\" 输出 8000"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-007",
+    "description": "实现 Pydantic 数据模型 app/models.py",
+    "steps": [
+      "创建 TaskStatus 枚举：pending, downloading, converting, recognizing, completed, failed",
+      "创建请求模型 ExtractRequest（url, enable_timestamp）",
+      "创建响应模型 ExtractResponse（task_id, status, message）",
+      "创建 TaskResult 模型（task_id, status, progress, created_at, completed_at, video_title, video_duration, text, segments, error）",
+      "创建 VideoInfoResponse 模型（title, duration, thumbnail, uploader, description）",
+      "验证：python -c \"from app.models import TaskStatus, ExtractRequest; print(TaskStatus.PENDING)\" 正常输出"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-008",
+    "description": "实现内存任务管理器 app/task_manager.py",
+    "steps": [
+      "创建 TaskManager 类，内部用 dict 存储任务",
+      "实现 create_task() 方法：生成 uuid 短ID，创建初始 TaskResult，返回 task_id",
+      "实现 update_task(task_id, **kwargs) 方法：更新任务的任意字段",
+      "实现 get_task(task_id) 方法：返回任务详情或 None",
+      "实现 _cleanup_old_tasks() 方法：超过 MAX_TASKS 时清理已完成的旧任务",
+      "使用 asyncio.Lock 保证并发安全",
+      "导出全局 task_manager 单例",
+      "验证：python -c \"from app.task_manager import task_manager; print('ok')\" 正常输出"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-009",
+    "description": "实现 yt-dlp 下载服务 app/services/downloader.py",
+    "steps": [
+      "创建 ThreadPoolExecutor(max_workers=3) 用于异步包装",
+      "实现 _extract_info_sync(url)：用 yt_dlp.YoutubeDL 提取视频元数据（title, duration, thumbnail, uploader, description），不下载",
+      "实现 _download_audio_sync(url, output_dir, task_id)：下载最佳音频流，用 FFmpegExtractAudio 后处理器提取为 WAV，返回文件路径和视频信息",
+      "实现 extract_info(url) 异步函数：用 run_in_executor 包装",
+      "实现 download_audio(url, output_dir, task_id) 异步函数：用 run_in_executor 包装",
+      "验证：python -c \"from app.services.downloader import extract_info; print('ok')\" 正常输出"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-010",
+    "description": "实现 ffmpeg 音频转换服务 app/services/audio.py",
+    "steps": [
+      "实现 convert_to_16k_wav(input_path, output_path) 异步函数",
+      "使用 asyncio.create_subprocess_exec 调用 ffmpeg",
+      "转换参数：-ar 16000（采样率）、-ac 1（单声道）、-sample_fmt s16（16bit）",
+      "处理 ffmpeg 返回非零退出码的错误情况，抛出 RuntimeError 并附带 stderr 信息",
+      "验证：python -c \"from app.services.audio import convert_to_16k_wav; print('ok')\" 正常输出"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-011",
+    "description": "实现 FunASR 语音识别服务 app/services/asr.py",
+    "steps": [
+      "创建 ThreadPoolExecutor(max_workers=2) 用于异步包装",
+      "实现 load_model() 函数：加载 AutoModel（paraformer-zh + fsmn-vad + ct-punc），存为全局变量",
+      "实现 _recognize_sync(audio_path, enable_timestamp)：调用 model.generate()，返回 text 和可选的 segments 时间戳列表",
+      "实现 recognize(audio_path, enable_timestamp) 异步函数：用 run_in_executor 包装",
+      "验证：python -c \"from app.services.asr import load_model; print('ok')\" 正常输出"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-012",
+    "description": "实现 API 路由和任务编排 app/routes.py",
+    "steps": [
+      "创建 APIRouter(prefix='/api')",
+      "实现 POST /api/extract：接收 ExtractRequest，创建任务，用 asyncio.create_task 启动后台处理，返回 task_id",
+      "实现 GET /api/task/{task_id}：查询任务状态和结果，不存在返回 404",
+      "实现 GET /api/info：接收 url 查询参数，调用 downloader.extract_info 返回视频元数据",
+      "实现 _process_task(task_id, url, enable_timestamp)：编排 downloading → converting → recognizing → completed 流程",
+      "每个阶段更新任务状态，异常时标记 failed 并记录 error",
+      "finally 块中用 shutil.rmtree 清理任务临时文件目录",
+      "验证：python -c \"from app.routes import router; print('ok')\" 正常输出"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-013",
+    "description": "实现 FastAPI 应用入口 app/main.py 和启动脚本 run.py",
+    "steps": [
+      "创建 app/main.py，使用 lifespan 上下文管理器",
+      "启动时创建临时目录、加载 ASR 模型",
+      "添加 CORS 中间件（allow_origins=['*']）",
+      "注册 routes.router",
+      "添加根路由 GET / 返回服务状态信息",
+      "创建 run.py 启动脚本，使用 uvicorn.run 启动服务",
+      "验证：python -c \"from app.main import app; print('ok')\" 正常输出"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-014",
+    "description": "更新 init.bat 适配 Python 后端项目",
+    "steps": [
+      "修改 guifan/init.bat，检查 Python 是否安装",
+      "检查 ffmpeg 是否在 PATH 中可用",
+      "检查 vendor/yt-dlp 和 vendor/FunASR 是否已拉取，未拉取则执行 git clone",
+      "安装 vendor 下的开源项目依赖（pip install -e vendor/yt-dlp 等）",
+      "安装 requirements.txt 依赖",
+      "复制 .env.example 为 .env（如不存在）",
+      "显示启动命令提示：python run.py",
+      "运行 init.bat 验证脚本执行无错误"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-015",
+    "description": "验证服务启动和 Swagger 文档",
+    "steps": [
+      "执行 python run.py 启动服务",
+      "在浏览器访问 http://localhost:8000 验证返回服务状态 JSON",
+      "访问 http://localhost:8000/docs 验证 Swagger 文档页面正常显示",
+      "验证三个 API 端点在文档中均可见：POST /api/extract, GET /api/task/{task_id}, GET /api/info",
+      "截图记录测试结果"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-016",
+    "description": "端到端测试：获取视频信息接口",
+    "steps": [
+      "启动服务 python run.py",
+      "在浏览器打开 http://localhost:8000/docs",
+      "使用 Swagger UI 测试 GET /api/info 接口，传入一个测试视频 URL",
+      "验证返回 JSON 包含 title, duration 等字段",
+      "测试传入无效 URL，验证返回 400 错误和错误信息",
+      "截图记录测试结果"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-017",
+    "description": "端到端测试：完整文案提取流程",
+    "steps": [
+      "启动服务 python run.py",
+      "在浏览器打开 http://localhost:8000/docs",
+      "使用 Swagger UI 测试 POST /api/extract 接口，传入一个短视频 URL（时长小于1分钟）",
+      "验证返回 task_id 和 status=pending",
+      "使用 GET /api/task/{task_id} 轮询任务状态",
+      "验证状态依次经过 downloading → converting → recognizing → completed",
+      "验证最终结果中 text 字段包含识别出的中文文案",
+      "测试 enable_timestamp=true，验证 segments 字段包含时间戳信息",
+      "截图记录测试结果"
+    ],
+    "passes": false
+  },
+  {
+    "id": "task-018",
+    "description": "端到端测试：错误处理和边界情况",
+    "steps": [
+      "测试传入无效 URL 到 POST /api/extract，验证任务最终状态为 failed 且 error 字段有错误描述",
+      "测试查询不存在的 task_id，验证返回 404",
+      "测试传入空字符串 URL，验证参数校验返回 422",
+      "验证控制台无未捕获的异常",
+      "截图记录测试结果"
+    ],
+    "passes": false
+  }
+]

@@ -1,0 +1,29 @@
+# 开源项目（通过 git clone 拉取）
+vendor/
+
+# 临时文件
+tmp/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+
+# 环境配置
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
