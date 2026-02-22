@@ -20,7 +20,7 @@
       "验证 vendor/yt-dlp/yt_dlp/ 核心模块目录存在",
       "记录当前 clone 的 commit hash 以便追溯版本"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-003",
@@ -31,7 +31,7 @@
       "验证 vendor/FunASR/funasr/ 核心模块目录存在",
       "记录当前 clone 的 commit hash 以便追溯版本"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-004",

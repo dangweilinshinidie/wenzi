@@ -48,3 +48,32 @@ At the end of each AI work session, please add a new session record at the end o
 **进度**: 1/18 任务完成
 
 ---
+
+### Session 3 - 2026-02-22
+**完成任务**:
+- task-002 - 拉取 yt-dlp 开源项目到 vendor 目录
+- task-003 - 拉取 FunASR 开源项目到 vendor 目录
+
+**实现内容**:
+- 通过 ghfast.top 镜像克隆 yt-dlp 到 vendor/yt-dlp（commit: e2a9cc7d1, Release 2026.02.21）
+- 通过 ghfast.top 镜像克隆 FunASR 到 vendor/FunASR（commit: a397d0b2）
+
+**测试结果**:
+- 验证 vendor/yt-dlp/ 目录存在且包含完整源码
+- 验证 vendor/yt-dlp/yt_dlp/ 核心模块目录存在
+- 验证 vendor/FunASR/ 目录存在且包含完整源码
+- 验证 vendor/FunASR/funasr/ 核心模块目录存在
+
+**遇到的问题**:
+- GitHub 直连 clone 失败（Connection was reset）
+- gitclone.com 镜像返回 502
+- ghproxy.com 镜像重定向失败
+
+**解决方案**:
+- 使用 ghfast.top 镜像成功克隆
+
+**下一步计划**: task-004 - 安装开源项目依赖和系统工具
+
+**进度**: 3/18 任务完成
+
+---
