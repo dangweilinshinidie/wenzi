@@ -343,3 +343,30 @@ At the end of each AI work session, please add a new session record at the end o
 **进度**: 16/18 任务完成
 
 ---
+
+### 会话 14 - 2026-02-25（本地视频转文字测试）
+**类型**: 临时验证（非正式任务），验证核心 ASR 管道对本地文件的实际效果
+
+**背景**:
+- 用户提供本地视频文件 `G:/LUZHIDESHIPING/声音/2025-08-10 02-56-20.mp4`（时长 9分26秒）
+- 当前 API 仅支持 URL 输入，不接受本地文件上传，需绕过 yt-dlp
+
+**操作步骤**:
+1. 尝试直接传 Windows 路径 → yt-dlp 报错 `Unsupported url scheme: "g"`
+2. 尝试 `file:///G:/...` URL → yt-dlp 报错 `file:// URLs are disabled by default`
+3. 改用 ffmpeg 直接转换：`ffmpeg -i 视频.mp4 -ar 16000 -ac 1 -sample_fmt s16 test_local_16k.wav`
+4. 直接调用 `app.services.asr.recognize()` 跑识别
+
+**测试结果**:
+- ffmpeg 转换 9分26秒视频 → 16k WAV，耗时 < 1秒（速度 749x）✓
+- FunASR 识别 566 秒音频，RTF ≈ 0.053（约30秒完成），总字数 **2287** ✓
+- 中文识别正确，内容为 GPT vs Claude 对比视频的讲解文稿 ✓
+- 结果保存至 `tmp/result.txt`（UTF-8 编码）✓
+
+**发现的限制**:
+- `POST /api/extract` 接口不支持本地文件（yt-dlp 安全策略禁用 `file://`）
+- 如需支持本地文件，需新增 `POST /api/upload` 端点（multipart/form-data）
+
+**进度**: 16/18 任务完成（本次为额外验证，未推进任务编号）
+
+---
