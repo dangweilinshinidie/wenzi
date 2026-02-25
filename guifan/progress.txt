@@ -310,3 +310,36 @@ At the end of each AI work session, please add a new session record at the end o
 **进度**: 15/18 任务完成
 
 ---
+
+### 会话 13 - 2026-02-25 21:00
+**完成任务**: task-016 - 端到端测试：获取视频信息接口
+
+**实现内容**:
+- 服务已在端口 8000 运行，验证 `GET /` 返回 `{"status":"ok","service":"wenzi-asr"}` ✓
+- 使用 Chrome DevTools MCP 打开 `http://localhost:8000/docs`，Swagger UI 正常加载 ✓
+- 展开 GET /api/info 接口，点击 "Try it out"
+- 测试有效 URL：`https://www.bilibili.com/video/BV1xx411c7mD`
+
+**测试结果**:
+- 有效 URL → HTTP 200，返回完整 JSON：
+  ```json
+  { "title": "字幕君交流场所", "duration": 2055.637,
+    "thumbnail": "https://i0.hdslb.com/bfs/archive/transparent.png",
+    "uploader": "碧诗", "description": "www" }
+  ```
+  包含 title, duration, thumbnail, uploader, description ✓
+- 无效 URL（`https://invalid-not-a-video-url.xyz/fake`）→ HTTP 400 Bad Request，返回 `{"detail": "Failed to extract video info: ERROR: ..."}` ✓
+- 控制台无未捕获异常（仅预期的 400 请求错误）✓
+- 截图保存：`tmp/task016_docs.png`、`tmp/task016_info_200.png`、`tmp/task016_info_400.png`
+
+**遇到的问题**:
+- Chrome DevTools MCP 首次调用时因旧实例占用 profile 目录报错（"browser already running"）。
+
+**解决方案**:
+- 使用 PowerShell `Stop-Process -Name chrome -Force` 终止所有 Chrome 进程后重试。
+
+**下一步计划**: task-017 - 端到端测试：完整文案提取流程
+
+**进度**: 16/18 任务完成
+
+---
