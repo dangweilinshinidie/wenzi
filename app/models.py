@@ -14,7 +14,7 @@ class TaskStatus(str, Enum):
 
 
 class ExtractRequest(BaseModel):
-    url: str = Field(..., description="视频 URL")
+    url: str = Field(..., min_length=1, description="视频 URL")
     enable_timestamp: bool = Field(False, description="是否返回时间戳")
 
 

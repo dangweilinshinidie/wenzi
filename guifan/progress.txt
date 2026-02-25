@@ -403,3 +403,26 @@ At the end of each AI work session, please add a new session record at the end o
 **进度**: 17/18 任务完成
 
 ---
+### Session 16 - 2026-02-25 22:51
+**Completed Task**: task-018 - End-to-end test: error handling and boundary cases
+
+**Implementation**:
+- Fixed request validation for `POST /api/extract` by adding `min_length=1` on `ExtractRequest.url` in `app/models.py`, so empty URL now fails at request validation layer.
+
+**Test Results**:
+- `GET /api/task/notexist123` -> `404` with `{"detail":"Task not found"}`.
+- `POST /api/extract` with invalid URL (`https://invalid-not-a-video-url.xyz/fake`) -> task created (`pending`), then polled to final status `failed`, with non-empty `error` message.
+- `POST /api/extract` with empty URL (`{"url":"","enable_timestamp":false}`) -> `422` with validation error `string_too_short` on `body.url`.
+- Checked `tmp/task018_server.err.log`: no `Exception in ASGI application` entries (no uncaught ASGI exceptions observed).
+
+**Issues Encountered**:
+- None blocking.
+
+**Resolution**:
+- Not required.
+
+**Next Step**: All tasks in `task.json` are now completed.
+
+**Progress**: 18/18 tasks completed
+
+---
