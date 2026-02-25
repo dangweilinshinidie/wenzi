@@ -62,6 +62,7 @@ def _recognize_sync(
         input=audio_path,
         batch_size_s=settings.ASR_BATCH_SIZE_S,
         device=settings.ASR_DEVICE,
+        sentence_timestamp=enable_timestamp,
     )
 
     if not results:

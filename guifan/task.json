@@ -218,7 +218,7 @@
       "测试 enable_timestamp=true，验证 segments 字段包含时间戳信息",
       "截图记录测试结果"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-018",

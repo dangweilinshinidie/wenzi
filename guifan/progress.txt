@@ -370,3 +370,36 @@ At the end of each AI work session, please add a new session record at the end o
 **进度**: 16/18 任务完成（本次为额外验证，未推进任务编号）
 
 ---
+
+### 会话 15 - 2026-02-25 22:20
+**完成任务**: task-017 - 端到端测试：完整文案提取流程
+
+**实现内容**:
+- 修复 `app/services/asr.py`：`model.generate()` 增加 `sentence_timestamp=enable_timestamp` 参数，修复 enable_timestamp=true 时 segments 为 None 的 bug
+
+**测试步骤**:
+1. 服务已运行（http://localhost:8000），验证 GET / 返回 `{"status":"ok"}` ✓
+2. 浏览器打开 http://localhost:8000/docs，Swagger UI 正常加载 ✓
+3. 使用 Swagger UI 的 "Try it out" 功能测试 POST /api/extract
+4. 传入短视频 URL：`https://www.bilibili.com/video/BV1Lg411n7ZP`（第一个视频，时长 59.093s）
+
+**测试结果**:
+- POST /api/extract → HTTP 200，task_id="06babec9"，status="pending" ✓
+- 任务状态轮询：downloading → recognizing → completed（converting 阶段过快未捕获）✓
+- 最终 text 字段包含 208 字中文识别文案（大家好，我是即将成为奥特…）✓
+- enable_timestamp=true 测试（task_id="675aa889"）：segments 字段返回 15 个时间戳片段 ✓
+  - 示例：`{"start": 1030.0, "end": 1510.0, "text": "大家好"}`
+- 控制台无未捕获异常 ✓
+- 截图：tmp/task017_docs.png、tmp/task017_extract_response.png、tmp/task017_task_completed.png、tmp/task017_segments_result.png
+
+**遇到的问题**:
+- enable_timestamp=true 时 segments 返回 None：`model.generate()` 未传 `sentence_timestamp` 参数
+
+**解决方案**:
+- 在 `app/services/asr.py` 的 `_recognize_sync()` 中添加 `sentence_timestamp=enable_timestamp` 参数
+
+**下一步计划**: task-018 - 端到端测试：错误处理和边界情况
+
+**进度**: 17/18 任务完成
+
+---
