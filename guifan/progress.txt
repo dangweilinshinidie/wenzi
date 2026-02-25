@@ -77,3 +77,236 @@ At the end of each AI work session, please add a new session record at the end o
 **进度**: 3/18 任务完成
 
 ---
+
+### Session 4 - 2026-02-22
+**完成任务**:
+- task-004 - 安装开源项目依赖和系统工具
+
+**实现内容**:
+- pip install yt-dlp (2026.02.21)
+- pip install funasr (1.3.1) modelscope (1.34.0)
+- pip install torch (2.10.0) torchaudio (2.10.0)
+- 下载 ffmpeg 8.0.1 静态构建到 vendor/ffmpeg/
+- 将 vendor/ffmpeg 添加到用户 PATH 环境变量
+
+**测试结果**:
+- python -c "import yt_dlp" → yt-dlp 2026.02.21 ✓
+- python -c "import funasr" → funasr 1.3.1 ✓
+- ffmpeg.exe -version → ffmpeg 8.0.1 ✓
+
+**遇到的问题**:
+- winget 和 choco 均不可用，无法通过包管理器安装 ffmpeg
+- bash shell 中 PATH 添加后 ffmpeg 命令仍找不到（需用完整路径调用）
+
+**解决方案**:
+- 用 Python 直接从 gyan.dev 下载 ffmpeg 静态构建，解压到 vendor/ffmpeg/
+- 通过 PowerShell 将路径添加到用户 PATH 环境变量（新终端生效）
+
+**下一步计划**: task-005 - 创建后端项目基础文件
+
+**进度**: 4/18 任务完成
+
+---
+
+### Session 5 - 2026-02-24
+**Completed Task**: task-008 - Implement in-memory task manager `app/task_manager.py`
+
+**Implementation**:
+- Implemented `TaskManager` with internal `dict` storage and `asyncio.Lock` for concurrency safety.
+- `create_task()` now generates short UUID-based IDs, creates initial `TaskResult`, and triggers cleanup after insertion.
+- `update_task(task_id, **kwargs)` updates task fields safely and ignores unsupported keys.
+- `get_task(task_id)` returns task details or `None`.
+- `_cleanup_old_tasks()` removes oldest completed/failed tasks only when task count exceeds `MAX_TASKS`.
+- Exported global singleton `task_manager`.
+
+**Validation**:
+- `python -c "from app.task_manager import task_manager; print('ok')"` passed.
+- `python -m compileall app/task_manager.py` passed.
+- Ran an async behavior check for create/update/get/cleanup; completed tasks were cleaned as expected under a temporary low `MAX_TASKS`.
+
+**Issues Encountered**:
+- None blocking.
+
+**Next Step**: task-009 - Implement yt-dlp download service `app/services/downloader.py`
+
+**Progress**: 8/18 tasks completed
+
+---
+
+### Session 6 - 2026-02-24 22:18
+**完成任务**: task-009 - 实现 yt-dlp 下载服务 `app/services/downloader.py`
+
+**实现内容**:
+- 新增 `app/services/downloader.py`，创建 `ThreadPoolExecutor(max_workers=3)` 用于同步下载逻辑的异步包装。
+- 实现 `_extract_info_sync(url)`：基于 `yt_dlp.YoutubeDL` 提取 `title/duration/thumbnail/uploader/description`，不触发下载。
+- 实现 `_download_audio_sync(url, output_dir, task_id)`：下载最佳音频并通过 `FFmpegExtractAudio` 后处理为 WAV，返回音频路径与视频信息。
+- 实现 `extract_info(url)` 与 `download_audio(url, output_dir, task_id)` 异步接口，统一通过 `run_in_executor` 调度。
+- 增加下载结果定位逻辑，优先匹配 `task_id.wav`，兼容后处理输出路径差异。
+
+**测试结果**:
+- `python -c "from app.services.downloader import extract_info; print('ok')"` 通过。
+- `python -m compileall app/services/downloader.py` 通过。
+
+**遇到的问题**: 无阻塞问题。
+
+**解决方案**: 无。
+
+**下一步计划**: task-010 - 实现 ffmpeg 音频转换服务 `app/services/audio.py`
+
+**进度**: 9/18 任务完成
+
+---
+
+### Session 7 - 2026-02-24 22:57
+**Completed Task**: task-010 - Implement ffmpeg audio conversion service `app/services/audio.py`
+
+**Implementation**:
+- Added `app/services/audio.py` with async `convert_to_16k_wav(input_path, output_path)`.
+- Used `asyncio.create_subprocess_exec` to call ffmpeg with `-ar 16000`, `-ac 1`, `-sample_fmt s16`.
+- Added ffmpeg binary resolution via configured `settings.FFMPEG_PATH` with fallback to `ffmpeg` in PATH.
+- Added non-zero exit handling that raises `RuntimeError` and includes decoded `stderr`.
+- Added input file existence check and ensured output directory creation.
+
+**Validation**:
+- `python -c "from app.services.audio import convert_to_16k_wav; print('ok')"` passed.
+- `python -m compileall app/services/audio.py` passed.
+- Ran a minimal end-to-end conversion check: generated an 8k WAV sample, converted to 16k WAV, and verified output `channels=1`, `rate=16000`, `width=2`.
+
+**Issues Encountered**:
+- None blocking.
+
+**Next Step**: task-011 - Implement FunASR recognition service `app/services/asr.py`
+
+**Progress**: 10/18 tasks completed
+---
+
+### Session 8 - 2026-02-24
+**Completed Task**: task-011 - Implement FunASR recognition service `app/services/asr.py`
+
+**Implementation**:
+- Added `app/services/asr.py` with a global `ThreadPoolExecutor(max_workers=2)` for wrapping synchronous ASR calls.
+- Implemented `load_model()` to lazily construct and cache a global `AutoModel` instance using `ASR_MODEL`, `ASR_VAD_MODEL`, and `ASR_PUNC_MODEL` from `settings`, with thread-safe double-checked locking.
+- Implemented `_recognize_sync(audio_path, enable_timestamp)` that calls `model.generate()` with `batch_size_s` and `device` from config, returning recognized `text` and optional `segments` converted into the `Segment` Pydantic model.
+- Implemented `recognize(audio_path, enable_timestamp)` as an async wrapper using `run_in_executor` to offload the synchronous recognition to the thread pool.
+
+**Validation**:
+- `python -c "from app.services.asr import load_model; print('ok')"` passed.
+- `python -m compileall app/services/asr.py` passed.
+
+**Issues Encountered**:
+- None blocking.
+
+**Next Step**: task-012 - Implement API routes and orchestration `app/routes.py`
+
+**Progress**: 11/18 tasks completed
+
+---
+
+### Session 9 - 2026-02-24 23:42
+**完成任务**: task-012 - 实现 API 路由和任务编排 `app/routes.py`
+
+**实现内容**:
+- 新建 `app/routes.py` 并创建 `APIRouter(prefix='/api')`。
+- 实现 `POST /api/extract`：接收 `ExtractRequest`，创建任务并用 `asyncio.create_task` 启动后台处理流程。
+- 实现 `GET /api/task/{task_id}`：查询任务详情，不存在时返回 `404`。
+- 实现 `GET /api/info`：接收 `url` 查询参数，调用 `downloader.extract_info` 返回视频元数据。
+- 实现 `_process_task(task_id, url, enable_timestamp)`：按 `downloading -> converting -> recognizing -> completed` 编排，串联下载、转码、识别服务。
+- 在各阶段更新任务状态；异常时标记 `failed` 并记录 `error`。
+- 在 `finally` 中使用 `shutil.rmtree` 清理任务临时目录。
+
+**测试结果**:
+- `python -c "from app.routes import router; print('ok')"` 通过。
+- `python -m compileall app/routes.py` 通过。
+
+**遇到的问题**:
+- 路由导入校验首次在默认超时内未完成（超时），无异常栈输出。
+
+**解决方案**:
+- 将导入校验命令超时延长后重试，成功输出 `ok`。
+
+**下一步计划**: task-013 - 实现 FastAPI 应用入口 `app/main.py` 和启动脚本 `run.py`
+
+**进度**: 12/18 任务完成
+
+---
+
+### Session 10 - 2026-02-24 23:48
+**完成任务**: task-013 - 实现 FastAPI 应用入口 `app/main.py` 和启动脚本 `run.py`
+
+**实现内容**:
+- 新建 `app/main.py`，使用 `lifespan` 上下文管理器在启动时创建临时目录并预加载 ASR 模型。
+- 在 FastAPI 应用中添加 CORS 中间件（`allow_origins=['*']`，并放开方法/请求头）。
+- 注册 `app.routes.router` 到应用。
+- 新增根路由 `GET /`，返回服务健康状态信息。
+- 新建 `run.py`，使用 `uvicorn.run` 基于配置项 `HOST/PORT` 启动服务。
+
+**测试结果**:
+- `python -c "from app.main import app; print('ok')"` 通过。
+- `python -m compileall app/main.py run.py` 通过。
+
+**遇到的问题**: 无阻塞问题。
+
+**解决方案**: 无。
+
+**下一步计划**: task-014 - 更新 `init.bat` 适配 Python 后端项目
+
+**进度**: 13/18 任务完成
+
+---
+
+### Session 11 - 2026-02-24 23:59
+**完成任务**: task-014 - 更新 `init.bat` 适配 Python 后端项目
+
+**实现内容**:
+- 重写 `guifan/init.bat` 为 Python 后端初始化流程，自动切换到项目根目录执行。
+- 增加 Python 检查（`python`/`pip` 可用性）与 ffmpeg 检查（优先 PATH，不存在时回退 `vendor/ffmpeg/ffmpeg.exe`）。
+- 增加 vendor 仓库检查：缺失时自动克隆 `vendor/yt-dlp` 与 `vendor/FunASR`。
+- 增加依赖安装流程：`pip install -e vendor/yt-dlp`、`pip install -e vendor/FunASR`、`pip install -r requirements.txt`。
+- 解决当前环境镜像源 403 问题：安装步骤改为优先官方 PyPI（`-i https://pypi.org/simple`），失败再回退默认 pip 索引。
+- 增加 `.env` 自动创建逻辑：不存在时从 `.env.example` 复制。
+- 增加最终启动提示：`python run.py`，并统一成功/失败退出码。
+
+**测试结果**:
+- `cmd /c guifan\init.bat` 执行通过，退出码为 `0`。
+- 脚本输出覆盖任务要求的全部步骤：Python/ffmpeg 检查、vendor 校验、依赖安装、`.env` 处理、启动命令提示。
+- 回归校验：`python -c "from app.main import app; print('app-ok')"` 通过。
+- 回归校验：`python -c "from app.routes import router; print('routes-ok')"` 通过。
+
+**遇到的问题**:
+- 环境中 pip 默认镜像 `https://pypi.tuna.tsinghua.edu.cn/simple` 对部分构建依赖返回 `403`，导致 editable install 失败。
+
+**解决方案**:
+- 在 `init.bat` 安装命令中优先指定官方 PyPI 索引并保留默认索引回退逻辑，保证脚本在当前环境可稳定执行。
+
+**下一步计划**: task-015 - 验证服务启动和 Swagger 文档
+
+**进度**: 14/18 任务完成
+
+---
+
+### Session 12 - 2026-02-25
+**完成任务**: task-015 - 验证服务启动和 Swagger 文档
+
+**实现内容**:
+- 后台启动 `python run.py`，约 30 秒内完成 ASR 模型加载（paraformer-zh + fsmn-vad + ct-punc）。
+- 验证 `GET /` 返回 `{"status":"ok","service":"wenzi-asr"}`（截图：tmp/task015_root.png）。
+- 验证 `http://localhost:8000/docs` Swagger UI 正常加载，标题 "Wenzi ASR API 0.1.0 OAS 3.1"（截图：tmp/task015_swagger.png）。
+- 验证三个 API 端点在 Swagger 中均可见：`POST /api/extract`、`GET /api/task/{task_id}`、`GET /api/info`。
+- 验证 Schemas 区域展示所有 Pydantic 模型：ExtractRequest、ExtractResponse、Segment、TaskResult、TaskStatus、VideoInfoResponse。
+
+**测试结果**:
+- `curl http://localhost:8000/` → `{"status":"ok","service":"wenzi-asr"}` ✓
+- Swagger `/docs` 页面正常显示，三端点均可见 ✓
+- 截图已保存至 `tmp/task015_root.png` 和 `tmp/task015_swagger.png` ✓
+
+**遇到的问题**:
+- 首次启动时端口 8000 被前一个进程占用（`[Errno 10048]`）。
+
+**解决方案**:
+- 用 `netstat -ano | findstr :8000` 定位 PID，`Stop-Process` 终止后重新启动。
+
+**下一步计划**: task-016 - 端到端测试：获取视频信息接口
+
+**进度**: 15/18 任务完成
+
+---

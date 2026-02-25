@@ -44,7 +44,7 @@
       "验证 python -c \"import yt_dlp; print(yt_dlp.version.__version__)\" 正常输出版本号",
       "验证 python -c \"import funasr; print(funasr.__version__)\" 正常输出版本号"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-005",
@@ -56,7 +56,7 @@
       "执行 pip install -r requirements.txt 安装后端框架依赖",
       "验证所有文件存在且 pip install 无报错"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-006",
@@ -68,7 +68,7 @@
       "导出全局 settings 单例",
       "验证：python -c \"from app.config import settings; print(settings.PORT)\" 输出 8000"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-007",
@@ -81,7 +81,7 @@
       "创建 VideoInfoResponse 模型（title, duration, thumbnail, uploader, description）",
       "验证：python -c \"from app.models import TaskStatus, ExtractRequest; print(TaskStatus.PENDING)\" 正常输出"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-008",
@@ -96,7 +96,7 @@
       "导出全局 task_manager 单例",
       "验证：python -c \"from app.task_manager import task_manager; print('ok')\" 正常输出"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-009",
@@ -109,7 +109,7 @@
       "实现 download_audio(url, output_dir, task_id) 异步函数：用 run_in_executor 包装",
       "验证：python -c \"from app.services.downloader import extract_info; print('ok')\" 正常输出"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-010",
@@ -121,7 +121,7 @@
       "处理 ffmpeg 返回非零退出码的错误情况，抛出 RuntimeError 并附带 stderr 信息",
       "验证：python -c \"from app.services.audio import convert_to_16k_wav; print('ok')\" 正常输出"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-011",
@@ -133,7 +133,7 @@
       "实现 recognize(audio_path, enable_timestamp) 异步函数：用 run_in_executor 包装",
       "验证：python -c \"from app.services.asr import load_model; print('ok')\" 正常输出"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-012",
@@ -148,7 +148,7 @@
       "finally 块中用 shutil.rmtree 清理任务临时文件目录",
       "验证：python -c \"from app.routes import router; print('ok')\" 正常输出"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-013",
@@ -162,7 +162,7 @@
       "创建 run.py 启动脚本，使用 uvicorn.run 启动服务",
       "验证：python -c \"from app.main import app; print('ok')\" 正常输出"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-014",
@@ -177,7 +177,7 @@
       "显示启动命令提示：python run.py",
       "运行 init.bat 验证脚本执行无错误"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-015",
@@ -189,7 +189,7 @@
       "验证三个 API 端点在文档中均可见：POST /api/extract, GET /api/task/{task_id}, GET /api/info",
       "截图记录测试结果"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-016",
