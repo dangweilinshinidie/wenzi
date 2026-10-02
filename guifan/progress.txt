@@ -426,3 +426,35 @@ At the end of each AI work session, please add a new session record at the end o
 **Progress**: 18/18 tasks completed
 
 ---
+
+### 会话 17 - 2026-10-03
+**完成任务**: task-019 - 梳理现有 wenzi 项目全貌（模块 / 数据流 / 配置 / 已知问题）
+
+**实现内容**:
+- 新增 `guifan/CODEBASE_MAP.md`，记录模块职责与调用关系、API 请求/响应、任务编排、状态机、全部当前配置、下载/转码/ASR 细节与前端调用流程。
+- 梳理 Cookie 当前流转：`/api/cookie/config` -> Cookie 解析 -> 单个 Netscape 文件 -> settings/.env -> yt-dlp 全局 cookiefile。
+- 登记 task-021 的五类 Cookie 问题，并明确当前工作树含未提交改动；文档按现状陈述，不把已有脏改动当成已交付历史。
+- 记录 `scripts/setup_douyin_cookie.py` 输入格式、Netscape 输出、.env 更新与 `check_cookie_works` 行为。
+
+**测试结果**:
+- 文档列出的 13 个关键文件均存在，关键模块/函数名交叉检查通过。
+- `python -m compileall -q app run.py scripts/setup_douyin_cookie.py` 通过。
+- `python -c "from app.main import app; print(app.title, len(app.routes))"` 输出 `Wenzi ASR API 14`。
+- 按要求启动服务；首次启动触发 FunASR 模型首次下载（约 1.05 GB），完成后 8000 端口正常监听。
+- `GET http://127.0.0.1:8000/` 返回 200 和 `{"status":"ok","service":"wenzi-asr"}`；`HEAD /docs` 返回 200；`HEAD /ui` 返回 405（该页面路由仅声明 GET，属于预期方法限制，后续用 GET 验证）。
+- 浏览器自动化 MCP 工具当前不可用；使用 HTTP 端点验证，未声称完成真实浏览器交互测试。
+
+**遇到的问题**:
+- 8000 初次请求连接失败；日志表明服务正在首次下载 ASR 模型，不是应用异常。
+- 当前 checkout 中 task.json、后端 Cookie API、downloader 等有用户已有未提交修改。提交时仅暂存本轮文档、日志和 task-019 pass 标记，保留其它改动。
+- 工作区存在未跟踪 Cookie shadow browser 数据、项目文件和其他用户文件，均未纳入本轮提交。
+
+**解决方案**:
+- 等待模型加载完成并轮询健康接口，服务成功启动后再验证 API 文档。
+- 对 task.json 使用交互式暂存，仅选择 task-019 的 `passes` 行，避免把后续用户预先写入的 task-020~026 一起提交。
+
+**下一步计划**: task-020 - 调研 AI-Video-Transcriber 并产出 REFERENCE_NOTES.md
+
+**进度**: 19/26 任务完成（task-001~019）
+
+---
