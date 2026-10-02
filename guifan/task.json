@@ -295,7 +295,7 @@
       "验证多平台共存：抖音、B站、小红书三个平台的 cookie 同时存在时互不干扰，且只配抖音 cookie 时 B站请求不携带抖音 cookie",
       "验证：5 个已复现的 Bug 全部修复，并逐条补上验证证据"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-022",

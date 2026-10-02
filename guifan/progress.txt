@@ -491,3 +491,46 @@ At the end of each AI work session, please add a new session record at the end o
 **进度**: 20/26 任务完成（task-001~020）
 
 ---
+
+### 会话 19 - 2026-10-03
+**完成任务**: task-021 - 排查现有 Cookie 相关 Bug 并重写多平台 Cookie 逻辑
+
+**实现内容**:
+- 新增 `app/services/cookies.py`，实现 `CookieVault`：`list_domains`、`get`、`upsert`、`delete`、`rebuild_merged`、`merged_path`、`ydl_cookie_opts`，以及 `normalize_domain`、`infer_domain`、`parse_cookie_input`、浏览器 Cookie 读取。
+- Cookie 存储改为 `data/cookies/<domain>.txt`、`data/cookies/_merged.txt`、`data/cookies/_meta.json`；源文件、合并文件、元数据均采用临时文件 + `os.replace` 原子替换，合并过程用 `threading.Lock` 保护。
+- 解析支持浏览器 Cookie 头、`Cookie:` 前缀、Netscape 原文和插件 JSON；过滤 Cookie 属性，同名后者覆盖，并清理制表符/换行防 Netscape 行注入。
+- 增加域名别名：`youtu.be -> .youtube.com`、`b23.tv -> .bilibili.com`、`xhslink.com -> .xiaohongshu.com`、`vm.tiktok.com -> .tiktok.com`。
+- 改造 `/api/cookie/*`：保留 `/status`、`/config`、`/check` 兼容接口，新增 `/list`、`DELETE /{domain}`、`POST /sync-browser`；列表只返回域名、数量、来源和健康状态，不返回明文 Cookie。
+- `/config` 支持 `domain` 或 `url` 推断域名，支持三种 Cookie 输入格式；`/check` 将 `check_ok/checked_at` 写入 `_meta.json`。
+- 接入 yt-dlp 原生 `cookiesfrombrowser`，配置 `YTDLP_COOKIES_FROM_BROWSER` 支持 Chrome/Edge/Firefox 和 `browser:Profile`；自定义 `YTDLP_USER_AGENT`。
+- 改造 downloader：`_base_ydl_options(url)` 按目标 URL 注入 Cookie；旧 `YTDLP_COOKIE_FILE` 只作为抖音兼容回退；仅 Bilibili/B23 请求注入 B 站 Referer，抖音/小红书不再带 B 站 Referer。
+- 新增 `guifan/PROJECT_STATUS.md`，记录当前目录、核心文件、接口、数据流、状态机、Cookie Vault、配置和后续开发入口。
+- 更新 `guifan/CODEBASE_MAP.md`，补充五个 Cookie Bug 的复现结果、修复证据、新接口和新配置。
+
+**测试结果**:
+- `python -m compileall -q app run.py scripts/setup_douyin_cookie.py` 通过。
+- Cookie parser 通过 Cookie 头、Netscape、JSON、属性过滤、同名覆盖、别名域名测试。
+- 隔离 `CookieVault` 测试通过：抖音/B站/小红书同时存在、合并文件、原子写入、`_meta` 健康状态和删除。
+- FastAPI TestClient 通过：三平台 `/config`、`/list` 不返回 Cookie 值、按 URL 注入对应源文件、非 B 站不带 B 站 Referer、删除接口和根路由。
+- `/api/cookie/sync-browser` 非法浏览器返回 422；模拟 DPAPI 读取失败返回 400 和“关闭浏览器/手动复制 Cookie”中文指引。
+- 旧 `scripts/setup_douyin_cookie.py` 仍可写入 Netscape 文件；虚构 Cookie 测试文件未纳入提交。
+- 重启真实服务后 8000 验证通过：`GET /` 200、`GET /ui` 页面标题正常、`GET /docs` Swagger 正常、OpenAPI 包含六个 Cookie 路由。
+- 真实 Chrome 原生读取在当前 Windows 环境返回 yt-dlp 的“无法复制 Chrome cookie 数据库”错误；这与浏览器数据库占用/Windows 环境限制一致，服务会转为中文降级指引，未写入真实 Cookie。
+
+**遇到的问题**:
+- 最初的旧实现使用单个 `YTDLP_COOKIE_FILE`，后一次平台配置会覆盖前一次；旧 downloader 还对所有平台注入 B 站 Referer。
+- 第一次 browser profile 测试把整个 `browser:Profile` 转小写，导致 `Default` 被改为 `default`。
+- 真实 Chrome Cookie 数据库当前无法被 yt-dlp 复制，不能在本机宣称一键导入成功。
+- TestClient 的 lifespan 会加载 FunASR 模型并输出模型日志，测试耗时增加，但没有未捕获异常。
+
+**解决方案**:
+- 使用按域名隔离的 Cookie Vault，并在 downloader 入口按 URL 选择 Cookie 文件和请求头。
+- 只规范化浏览器名，保留 profile 原始大小写；增加浏览器数据库/DPAPI/权限错误的中文降级提示。
+- 保留手动粘贴、旧 CLI 和旧 API 作为可靠回退路径；真实浏览器导入结果如实记录为环境受限。
+- 所有测试 Cookie 使用临时目录或虚构数据，完成后删除运行期测试文件。
+
+**下一步计划**: task-022 - 建立平台能力提示表、URL 规范化和平台识别
+
+**进度**: 21/26 任务完成（task-001~021）
+
+---

@@ -16,7 +16,8 @@ Wenzi 是一个 FastAPI 视频/音频转文字服务。当前主链路由 yt-dlp
 | `app/models.py` | API 请求/响应、任务状态和分段数据模型 | `TaskStatus`, `ExtractRequest`, `TaskResult`, Cookie 模型 | 被 `routes.py`、`task_manager.py`、`asr.py` 使用 |
 | `app/task_manager.py` | 进程内任务 CRUD 和已结束任务清理 | `TaskManager.create_task/update_task/get_task/_cleanup_old_tasks` | 被 `routes.py` 调用；用 `asyncio.Lock` 串行保护字典操作 |
 | `app/routes.py` | API 端点、输入 URL 清理、Cookie 单文件接口、后台任务编排 | `_normalize_input_url`, `_parse_cookie_pairs`, `_write_netscape_cookie_file`, `_resolve_cookie_file_path`, `_persist_cookie_file_path`, `_process_task` | 调用 task manager、downloader、audio、ASR |
-| `app/services/downloader.py` | yt-dlp 元信息提取和音频下载，含 Bilibili playurl 兜底 | `_base_ydl_options`, `_extract_info_sync`, `_download_audio_sync`, `_bilibili_stream`, `extract_info`, `download_audio` | 被 routes 调用；同步工作提交到 `ThreadPoolExecutor(max_workers=3)` |
+| `app/services/downloader.py` | yt-dlp 元信息提取和音频下载，含 Bilibili playurl 兜底 | `_base_ydl_options`, `_extract_info_sync`, `_download_audio_sync`, `_bilibili_stream`, `extract_info`, `download_audio` | 被 routes 调用；同步工作提交到 `ThreadPoolExecutor(max_workers=3)`；按 URL 选择 Cookie 和 Referer |
+| `app/services/cookies.py` | 多平台 Cookie Vault、解析、原子合并、健康元数据、浏览器导入 | `CookieVault`, `parse_cookie_input`, `infer_domain`, `normalize_domain`, `browser_cookies` | 被 routes 和 downloader 调用；源文件按 domain 隔离 |
 | `app/services/audio.py` | ffmpeg 音频规格转换 | `convert_to_16k_wav` | 被 `_process_task` 调用；异步子进程执行 ffmpeg |
 | `app/services/asr.py` | FunASR 模型单例与识别 | `load_model`, `_recognize_sync`, `recognize` | 启动时预加载，任务中调用；线程池 `max_workers=2` |
 | `app/static/index.html` | 单页工作台：视频信息、任务轮询、分段展示、Markdown 导出、抖音 Cookie 配置 | `fetchVideoInfo`, `startExtract`, `pollTaskOnce`, `buildDocumentMarkdown`, `exportDocument`, `saveCookieAndCheck` | 调用 `/api/info`、`/api/extract`、`/api/task/{id}`、`/api/cookie/*` |
@@ -83,11 +84,14 @@ pending -> downloading -> converting -> recognizing -> completed
 | `ASR_BATCH_SIZE_S` | `300` | FunASR `batch_size_s` |
 | `DOWNLOAD_TIMEOUT` | `600` | yt-dlp socket timeout，目前探测与下载共用 |
 | `MAX_TASKS` | `100` | 内存任务数量阈值；超量时仅尝试移除已完成/失败的最旧任务 |
-| `YTDLP_COOKIE_FILE` | 空 | 当前单一 Netscape cookiefile 路径；缺省回退到 `TEMP_DIR/douyin.cookies.txt` |
+| `YTDLP_COOKIE_DIR` | `./data/cookies` | Cookie Vault 源文件、合并文件和元数据目录 |
+| `YTDLP_COOKIE_FILE` | 空 | 旧版单文件兼容配置；新流程按 URL 选择 Vault 文件，旧文件只作为抖音兼容回退 |
+| `YTDLP_COOKIES_FROM_BROWSER` | 空 | 可选 `chrome`、`edge`、`firefox` 或 `browser:Profile`，传给 yt-dlp 原生浏览器 Cookie 读取 |
 | `YTDLP_PROXY` | 空 | 所有 yt-dlp 请求共用的代理 |
+| `YTDLP_USER_AGENT` | 空 | 覆盖默认现代 Chrome UA |
 | `FFMPEG_PATH` | 项目路径下 `vendor/ffmpeg/ffmpeg.exe` | ffmpeg 可执行文件；找不到时 audio 服务回退 PATH 中的 `ffmpeg` |
 
-本次平台扩展计划预计增加多平台 Cookie Vault、按 URL 选 Cookie/请求头、平台能力提示、URL 规范化、独立探测超时、限速/worker 等配置；具体随 task-021 至 task-026 实现再更新。
+task-021 已增加多平台 Cookie Vault、按 URL 选 Cookie/请求头和浏览器导入配置；task-022 至 task-026 仍计划增加平台能力提示、URL 规范化、独立探测超时、限速/worker 等配置。
 
 ## 6. 下载、转码与识别细节
 
@@ -104,34 +108,34 @@ pending -> downloading -> converting -> recognizing -> completed
 ## 8. Cookie 当前流转与已知问题
 
 ```text
-浏览器 Cookie 请求头
- -> POST /api/cookie/config {raw_cookie, domain?}
- -> _parse_cookie_pairs (分号/换行分割、过滤常见属性、同名后者覆盖)
- -> _resolve_cookie_file_path (YTDLP_COOKIE_FILE 或 tmp/douyin.cookies.txt)
- -> _write_netscape_cookie_file (所有值写到同一文件，domain 使用请求字段)
- -> _persist_cookie_file_path (改 settings 单例并写入 .env)
- -> downloader._base_ydl_options -> 将同一文件作为 cookiefile 注入所有 URL
+浏览器 Cookie 请求头 / Netscape 文本 / 插件 JSON
+ -> POST /api/cookie/config {raw_cookie, domain? 或 url?}
+ -> CookieVault 解析并按规范化域名拆分
+ -> data/cookies/<domain>.txt 原子写入
+ -> data/cookies/_meta.json 记录 source/时间/check_ok
+ -> 重建 data/cookies/_merged.txt（原子替换）
+ -> downloader._base_ydl_options(url) 按实际 URL 选择单平台源文件
 ```
 
-Task-021 需要实证并修复的五项问题：
+Task-021 五项问题的复现结果与修复证据：
 
-| # | 现象与复现 | 根因 | 影响面 |
+| # | 复现结果 | 根因 | 修复与证据 |
 |---|---|---|---|
-| 1 | POST `/api/cookie/config` 传 `domain=www.xiaohongshu.com`，检查 Netscape 文件 domain 列；当前实现应使用传入值，需运行验证确认是否存在既有写死问题 | 路由层已参数化写 domain，但 Cookie 单文件/默认抖音设计仍可能导致前端固定传 `.douyin.com`；此前计划描述的“写死”与当前工作树代码并不完全一致 | 小红书/B站等 Cookie 可能绑定错误域名；需以端点实测及原始提交/脏工作区差异确认 |
-| 2 | 先后配置抖音与小红书，检查配置后文件内容 | 单个 `YTDLP_COOKIE_FILE` 每次整体覆盖，没有按平台拆分/合并 | 后一平台覆盖前一平台，多个站点无法稳定共存 |
-| 3 | 配置 B站 domain 的 cookie 后观察 yt-dlp 的请求/有效性 | `_base_ydl_options` 将同一文件无差别注入所有请求；Cookie domain 是否匹配由 Netscape 域匹配决定，当前缺乏按 URL 选择机制 | Cookie 可能静默不发送或跨域误带 |
-| 4 | 检查 `_base_ydl_options` 的请求头或以本地 mock 捕获不同平台请求头 | Bilibili Referer 全站固定 | 抖音、小红书等非 B站请求带错 Referer，可能触发风控 |
-| 5 | 配置失效 cookie 并运行 check，查看持久元数据 | 当前不存在 `_meta` 状态；校验失败仅在单次 HTTP 响应中返回 | 过期状态无法留存或供 UI/后续任务发现 |
+| 1 | 当前原路由写入 domain 参数本身没有写死 `.douyin.com`；隔离端点传 `.xiaohongshu.com` 后生成文件首列为 `.xiaohongshu.com` | task 描述的 domain 写死问题在当前工作树已由先前未提交实现部分修正 | `CookieVault.normalize_domain` 统一域名；路由可传 `domain` 或 `url` 推断。TestClient 对三个平台的配置均返回 200，且源文件按对应域名生成 |
+| 2 | 先后配置抖音与小红书时，旧路由写入同一个 `YTDLP_COOKIE_FILE`，第二次写入覆盖第一次 | 单文件配置没有按平台隔离 | 新结构分别写入 `douyin.com.txt`、`xiaohongshu.com.txt`，重建 `_merged.txt`；隔离测试同时配置抖音/B站/小红书后 `/list` 有 3 项 |
+| 3 | 旧 downloader 向任意 URL 提供同一 `cookiefile`；yt-dlp 会按 Netscape domain 过滤，但调用层无法保证 URL 只选择对应平台来源 | 单文件无 URL/domain 选择 | `_base_ydl_options(url)` 使用 `cookie_vault.ydl_cookie_opts(url)`；三个 URL 测试分别命中对应域名文件，且非目标平台不带抖音 Cookie |
+| 4 | 旧 options 对抖音、小红书也带 `Referer: https://www.bilibili.com/` | 请求头全平台共用 | 现仅 Bilibili/B23 URL 注入 B站 Referer；隔离检查确认抖音和小红书 options 不含 Referer，UA 可配置覆盖 |
+| 5 | 原实现没有持久 `_meta`；一次检测失败不会保存健康状态 | Cookie 健康结果只在响应中返回 | 新增 `_meta.json` 原子更新；`mark_check` 持久记录 `check_ok/checked_at`，配置时可选检测，后续任务可读取状态 |
 
-其他明确限制：
-- `/api/cookie/config` 的 `missing_common` 固定检查抖音 cookie 名称，不适合多平台。
-- URL 解析仅抽取第一个 URL 和去尾标点，不解析短链、不清理跟踪参数。
-- 任务字典只在进程内；服务重启后任务与结果丢失。
-- 声称的 `TEMP_FILE_MAX_AGE` 当前没有清理任务；不过单任务目录在结束 finally 清理。
-- 无单元测试目录/自动化测试配置已登记（需随后续任务建立针对性测试）。
+新增 API：`GET /api/cookie/list`（仅域名/数量/来源/健康状态，不返回值）、`DELETE /api/cookie/{domain}`、`POST /api/cookie/sync-browser`。原有 `/status`、`/config`、`/check` 保留兼容。浏览器同步支持 Chrome/Edge/Firefox；Windows DPAPI/数据库锁类错误返回关闭浏览器或手动粘贴的中文降级提示。
+
+其他仍然存在的项目级限制：
+- URL 解析只提取首个 URL 和去尾标点，不解析短链、不清理跟踪参数（task-022 范围）。
+- 任务字典只在进程内；服务重启后任务与结果丢失（task-024 范围）。
+- `TEMP_FILE_MAX_AGE` 当前没有清理任务；不过单任务目录在结束 finally 清理。
 - `/api/info` 把底层异常文本直接返回客户端；服务没有认证，且 CORS 对任意来源开放。
 
-> 证据边界：本工作树中 `.env.example`、配置、路由、下载器、静态页、脚本均存在未提交改动。上表以当前实际实现描述，不能据此宣称旧 bug 已在正式历史中复现。task-021 将针对当前运行版本进一步实测，报告差异并补充证据。
+> 当前 Cookie 相关源码来自 task-021 开始前的用户未提交工作区，未将其追认为旧提交内容。验证只使用临时目录和虚构 Cookie 值，没有写入用户真实 Cookie；真实浏览器导入是否成功以当前 Windows 浏览器 DPAPI/占用状态为准。
 
 ## 9. task-001 至 task-018 交付边界
 
