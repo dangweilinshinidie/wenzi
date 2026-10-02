@@ -478,12 +478,12 @@ At the end of each AI work session, please add a new session record at the end o
 - 8000 服务回归：根路由返回健康 JSON，`/openapi.json` 返回 `Wenzi ASR API` 且包含 7 个路径。
 
 **遇到的问题**:
-- 我没有先检查项目根目录和上级目录的全部现有副本，就按任务命令执行了 clone，造成 `vendor/AI-Video-Transcriber` 的重复克隆操作，这是我的失误。
-- 当前可定位的同名参考仓库只有 `vendor/AI-Video-Transcriber`；`pichamber-main` 是另一个无 remote 的目录，不包含该仓库的 `backend/video_processor.py`，因此没有删除任何无法确认归属的目录。
-- `vendor/` 被 `.gitignore` 排除，参考仓库不会进入主仓库提交。
+- 用户后来说明：此前工作区中的错误项目目录是用户自己误克隆的项目，已由用户删除；不应将该目录或重复克隆责任归因于本次 Agent 工作。
+- 本次 task-020 使用的正确参考仓库是 `vendor/AI-Video-Transcriber`，包含 `backend/video_processor.py` 和 Apache-2.0 `LICENSE`；它只作为本地参考源码存在。
+- `vendor/` 被 `.gitignore` 排除，`git ls-files vendor/AI-Video-Transcriber` 为空，参考仓库内容没有进入主仓库提交。
 
 **解决方案**:
-- 停止任何清理动作，保留现有目录和用户文件；对当前 checkout 做 commit/LICENSE/源码实证。
+- 未删除或修改用户删除后的其它目录；对当前正确参考仓库做 commit/LICENSE/源码实证。
 - 后续任务开始前先执行根目录、上级目录、`rg --files` 和 Git 状态检查，确认已有开源项目位置后再操作。
 
 **下一步计划**: task-021 - 排查现有 Cookie Bug 并重写多平台 Cookie 逻辑
@@ -494,6 +494,8 @@ At the end of each AI work session, please add a new session record at the end o
 
 ### 会话 19 - 2026-10-03
 **完成任务**: task-021 - 排查现有 Cookie 相关 Bug 并重写多平台 Cookie 逻辑
+
+> 更正说明：会话 18 中关于“重复克隆”的责任归因不准确。用户已确认错误项目目录原本就是用户自己误克隆的项目，并已删除；本次 Agent 使用的正确参考仓库为 `vendor/AI-Video-Transcriber`，其内容未进入 Git 提交。
 
 **实现内容**:
 - 新增 `app/services/cookies.py`，实现 `CookieVault`：`list_domains`、`get`、`upsert`、`delete`、`rebuild_merged`、`merged_path`、`ydl_cookie_opts`，以及 `normalize_domain`、`infer_domain`、`parse_cookie_input`、浏览器 Cookie 读取。
@@ -532,5 +534,14 @@ At the end of each AI work session, please add a new session record at the end o
 **下一步计划**: task-022 - 建立平台能力提示表、URL 规范化和平台识别
 
 **进度**: 21/26 任务完成（task-001~021）
+
+---
+
+### 更正记录 - 2026-10-03
+
+- 用户确认先前错误的项目目录是用户自己误克隆的项目，并已由用户删除；Agent 先前将其表述为自己重复克隆导致，属于错误归因。
+- 本次 task-020 的正确参考仓库为 `vendor/AI-Video-Transcriber`，commit `634e6a2207f54efa9874fd7cb58aea06e2a49e92`。该目录当前仍用于后续字幕解析调研。
+- 核验 `git check-ignore -v vendor/AI-Video-Transcriber` 命中 `.gitignore: vendor/`，且 `git ls-files vendor/AI-Video-Transcriber` 无输出。克隆源码从未进入主仓库暂存或提交；Git 中只提交了调研文档、任务状态、工作日志、项目说明和 task-021 实现文件。
+- 已修正会话 18 的错误描述，后续不得据此误认为参考仓库目录已删除或需要再次克隆。
 
 ---
