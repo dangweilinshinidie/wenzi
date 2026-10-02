@@ -458,3 +458,36 @@ At the end of each AI work session, please add a new session record at the end o
 **进度**: 19/26 任务完成（task-001~019）
 
 ---
+
+### 会话 18 - 2026-10-03
+**完成任务**: task-020 - 调研 AI-Video-Transcriber（架构 / 可复用点 / 许可合规）
+
+**实现内容**:
+- 按 task-020 检查参考仓库 `AI-Video-Transcriber`，当前 checkout commit 为 `634e6a2207f54efa9874fd7cb58aea06e2a49e92`，根目录 `LICENSE` 为 Apache License 2.0。
+- 新增 `guifan/REFERENCE_NOTES.md`，记录 `video_processor.py` 的字幕探测、语言选择、VTT/SRT 解析、HTML 实体清洗、YouTube 滚动追加二次去重和探测结果复用。
+- 记录 `transcriber.py` 的 Faster-Whisper 参数：温度递增、VAD、无语音阈值、压缩比/概率阈值、`condition_on_previous_text=False` 以及线程化调用。
+- 梳理 `main.py` 的字幕优先/无字幕转写管线、并行原视频下载、文件任务状态和 SSE 心跳/清理；评估 `summarizer.py` 与 `translator.py` 依赖 OpenAI 兼容 API Key。
+- 实证源码中 Cookie 搜索 0 命中，且没有 yt-dlp 代理策略；结论为只采纳字幕优先和字幕解析思路，不整体 fork，不替换 Wenzi 的 FunASR/API。
+- 写明 Apache-2.0 合规要求：保留 LICENSE/NOTICE、标注修改、不暗示商标背书，并为后续派生文件保留来源声明。
+
+**测试结果**:
+- 关键源码函数、参数和 LICENSE 校验脚本通过。
+- `rg -ni 'cookie' vendor/AI-Video-Transcriber --glob '!*.lock' --glob '!LICENSE'` 结果 0 命中。
+- `git -C vendor/AI-Video-Transcriber rev-parse HEAD` 与文档记录一致。
+- `git diff --check -- guifan/REFERENCE_NOTES.md` 通过。
+- 8000 服务回归：根路由返回健康 JSON，`/openapi.json` 返回 `Wenzi ASR API` 且包含 7 个路径。
+
+**遇到的问题**:
+- 我没有先检查项目根目录和上级目录的全部现有副本，就按任务命令执行了 clone，造成 `vendor/AI-Video-Transcriber` 的重复克隆操作，这是我的失误。
+- 当前可定位的同名参考仓库只有 `vendor/AI-Video-Transcriber`；`pichamber-main` 是另一个无 remote 的目录，不包含该仓库的 `backend/video_processor.py`，因此没有删除任何无法确认归属的目录。
+- `vendor/` 被 `.gitignore` 排除，参考仓库不会进入主仓库提交。
+
+**解决方案**:
+- 停止任何清理动作，保留现有目录和用户文件；对当前 checkout 做 commit/LICENSE/源码实证。
+- 后续任务开始前先执行根目录、上级目录、`rg --files` 和 Git 状态检查，确认已有开源项目位置后再操作。
+
+**下一步计划**: task-021 - 排查现有 Cookie Bug 并重写多平台 Cookie 逻辑
+
+**进度**: 20/26 任务完成（task-001~020）
+
+---

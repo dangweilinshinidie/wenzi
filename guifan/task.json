@@ -268,7 +268,7 @@
       "产出 guifan/REFERENCE_NOTES.md：可复用点清单（标注具体文件与行号）、不采纳点及原因、Apache-2.0 合规要求（保留 LICENSE、标注修改、不得使用其商标）",
       "在 REFERENCE_NOTES.md 中明确结论：只移植字幕解析与快路径设计思路，不整体 fork，避免推翻已交付的 task-001 ~ 018"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-021",
