@@ -336,16 +336,16 @@ async def export_task(task_id: str, format: str = Query("md", pattern="^(md|txt|
             h, rem = divmod(ms, 3_600_000); m, rem = divmod(rem, 60_000); s, ms = divmod(rem, 1000)
             return f"{h:02}:{m:02}:{s:02},{ms:03}"
         body = "\n\n".join(f"{i}\n{stamp(seg.start)} --> {stamp(seg.end)}\n{seg.text}" for i, seg in enumerate(task.segments, 1))
-        media_type = "application/x-subrip; charset=utf-8"
+        content_type = "application/x-subrip; charset=utf-8"
     elif format == "txt":
-        body, media_type = task.text or "", "text/plain; charset=utf-8"
+        body, content_type = task.text or "", "text/plain; charset=utf-8"
     elif format == "json":
-        body, media_type = task.model_dump_json(indent=2), "application/json; charset=utf-8"
+        body, content_type = task.model_dump_json(indent=2), "application/json; charset=utf-8"
     else:
         body = Path(task.file_path).read_text(encoding="utf-8") if task.file_path and Path(task.file_path).is_file() else f"# {task.video_title or task.task_id}\n\n{task.text or ''}\n"
-        media_type = "text/markdown; charset=utf-8"
+        content_type = "text/markdown; charset=utf-8"
     filename = f"{task.task_id}.{format}"
-    return Response(content=body, media_type=media_type, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return Response(content=body, headers={"Content-Disposition": f'attachment; filename="{filename}"', "Content-Type": content_type})
 
 
 @router.get("/history", response_model=HistoryPage)

@@ -735,3 +735,41 @@ At the end of each AI work session, please add a new session record at the end o
 **进度**: 25/26 任务完成（task-001~025；task-026 未完成）
 
 ---
+
+### 会话 24 - 2026-10-03
+**完成任务**: task-026 - 端到端验证与文档更新
+
+**实现内容**:
+- 更新 `PROJECT_DOCUMENT.md`，补充当前架构图、视频级 A/A_LOCKED/B1/B2/C 分流、队列/缓存/SQLite 持久化、API 契约、配置项和已知边界。
+- 新增根目录 `README.md`，说明启动方式、四档能力、接口清单、运行期目录、配置、限制和测试命令。
+- 新增 `guifan/COOKIE_GUIDE.md`，说明 Chrome/Edge DevTools 手动复制 Cookie、API 保存、浏览器一键导入、Windows DPAPI/数据库占用降级及安全边界。
+- 修正 `app/routes.py` 导出响应的 `Content-Type` 组装，避免 Starlette 自动追加后出现重复 `charset=utf-8`。
+- 仅修改 `guifan/task.json` 最后一个任务的 `passes` 字段为 `true`，未修改任务描述和步骤。
+
+**端到端测试结果**:
+- 8000 服务健康：`GET /` 返回 200；`/docs` 和 `/ui` 返回 200；OpenAPI 包含批量、队列、缓存、历史、Cookie、导出等路由。
+- 使用 Chrome DevTools MCP 打开 `http://127.0.0.1:8000/ui`，输入真实公开 YouTube URL `https://www.youtube.com/watch?v=ySU-N7KTLUo`，开启时间戳并点击开始提取。
+- 浏览器真实流程完成：`pending -> fetching_subtitle -> completed`，结果为 `resolved_tier=A`、`source=subtitle`、`subtitle_lang=en`，返回 123 个时间戳分段和约 3945 字文本；页面显示导出按钮可用。
+- Chrome DevTools 控制台无错误；页面快照确认任务状态、全文、时间戳表和整理文档预览均正常显示。截图工具能够返回图像，但 MCP 保存到当前工作区路径被工具根目录权限拒绝，未伪造截图文件路径。
+- 复核四种导出：`md/txt/srt/json` 均返回 200，Content-Type 分别为 `text/markdown; charset=utf-8`、`text/plain; charset=utf-8`、`application/x-subrip; charset=utf-8`、`application/json; charset=utf-8`；SRT 有 123 个 cue，JSON 为 `completed/A` 且含 123 个 segments，中文/UTF-8 可读取。
+- 复核 SQLite 落盘和历史：任务有 `data/output/youtube/...md`，`/api/history` 可搜索到任务，`/api/queue` 显示无排队/执行中任务，`/api/cache/stats` 显示 1 条有效缓存。
+- 复核批量接口：提交两条无效 generic URL 后，`/api/batch/{batch_id}` 返回两条独立 `failed` 明细，没有互相阻塞；C 档/无 extractor 提示通过 `/api/detect` 验证，快手返回“请提供可访问的媒体直链”。
+- 全套自动化检查：`python -m unittest discover -s tests -v` 25 项通过；`python -m compileall -q app tests run.py scripts/setup_douyin_cookie.py` 通过；`git diff --check` 通过。
+
+**接口与问题记录**:
+- 首次复测发现旧 8000 进程尚未加载导出 MIME 修复，重启服务并等待模型加载后，四种 MIME 均恢复为精确单 charset。
+- 终端通过 Git Bash 读取 `/tmp` 时 Windows 路径映射不一致，改用 HTTP 响应直接校验导出内容和 UTF-8。
+- 当前工作区已有用户未提交的 `app/services/asr.py`、`.gitignore`、Cookie 浏览器 shadow 文件等，本次没有覆盖、删除或纳入本次任务提交。
+- task-026 中需要真实授权 Cookie 的抖音、小红书、Instagram/X 等路径，以及需要用户当前抓包直链的快手/视频号/小宇宙，当前环境没有合适授权素材，因此只记录已有单测/策略验证，不将这些场景伪称为真实端到端成功。
+- 真实浏览器一键 Cookie 导入仍受 Windows DPAPI/浏览器数据库占用影响；此前实测接口能返回中文降级指引，手动 Cookie 流程保留。
+
+**解决方案**:
+- 对可访问的 YouTube 公开字幕链路完成真实浏览器验收，并对导出、历史、缓存、批量、平台提示和服务健康做 API 回归。
+- 对真实账号和时效性直链依赖的步骤保留明确边界，文档提供可复现的 Cookie 和直链操作说明。
+- 重启 8000 服务加载最新代码后重新验证导出 MIME，避免把旧进程结果当作代码结果。
+
+**下一步计划**: task-026 已完成，等待用户后续问题。
+
+**进度**: 26/26 任务完成（task-001~026）
+
+---

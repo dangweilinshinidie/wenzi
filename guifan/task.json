@@ -463,6 +463,6 @@
       "更新 guifan/progress.txt 记录本次会话的完整过程、测试证据与截图路径",
       "确认文档中出现的全部命令与路径均已实际验证可执行"
     ],
-    "passes": false
+    "passes": true
   }
 ]
