@@ -689,3 +689,49 @@ At the end of each AI work session, please add a new session record at the end o
 **下一步计划**: task-024 - 结果持久化、导出与历史记录
 
 **进度**: 23/26 任务完成（task-001~023）
+
+### 会话 23 - 2026-10-03
+**完成任务**:
+- task-024 - 结果持久化、落盘、导出和历史记录
+- task-025 - 批量提交、缓存、并发队列
+
+**实现内容**:
+- 新增 `app/services/storage.py`，使用标准库 SQLite 建立 `tasks`、`segments`、`result_cache` 表和查询索引；启用 WAL、`check_same_thread=False`，并通过 `_db()` 显式关闭连接。
+- `TaskManager` 改为内存缓存 + SQLite 双写，启动恢复历史；服务重启时把未结束任务标记为 `service_restarted` 失败。
+- 完成任务自动写入 `data/output/<platform>/<yyyymmdd>_<task_id>_<safe_title>.md`，包括 front-matter、正文和时间戳清单；落盘失败不改变 completed 状态。
+- 新增 `GET /api/task/{task_id}/export?format=md|txt|srt|json`，无 segments 请求 SRT 返回 409，并正确设置 UTF-8 Content-Type 和下载文件名。
+- 新增 `GET /api/history` 分页、platform/q 筛选、前 200 字摘要；`DELETE /api/history/{task_id}` 同步删除数据库记录和落盘文件；新增 `/api/stats`。
+- 新增 `POST /api/extract/batch`、`GET /api/batch/{batch_id}`，支持 urls 数组和整段文本 URL 切分，单条失败不影响批次；新增 `BATCH_MAX_ITEMS=20`。
+- 新增 30 天结果缓存、force 绕过、缓存统计/清空；缓存键为 platform + normalized URL 的 SHA-256；同一 key 的并发提交合并为一次排队任务。
+- 新增 asyncio worker、下载/ASR Semaphore 并发限制、`/api/queue`、任务取消接口和阶段边界检查。
+- 前端新增批量提交/状态表和历史搜索/导出/删除入口。
+- 新增 `tests/test_task024025.py`。
+
+**接口细节**:
+- `POST /api/extract/batch` body 支持 `urls`、`text`、`enable_timestamp`、`fallback_asr`、`force_asr`、`force`；返回 `batch_id` 和 `task_ids`。
+- `GET /api/batch/{batch_id}` 返回 `succeeded`、`failed`、`in_progress`、`queued` 及逐条任务。
+- `GET /api/history?limit=&offset=&platform=&q=` 返回摘要列表；`DELETE /api/history/{task_id}` 删除记录和文件。
+- `GET /api/stats` 返回平台计数、失败率、字幕数和平均耗时；`GET /api/queue` 返回队列和 worker 计数。
+- `GET /api/cache/stats`、`DELETE /api/cache` 管理缓存；`DELETE /api/task/{task_id}` 取消任务。
+- SQLite 数据库为 `data/app.db`，文案目录为 `data/output/`，运行期数据均不提交。
+
+**测试结果**:
+- `python -m unittest discover -s tests -v`：25 项通过。
+- `python -m compileall -q app tests run.py`、`git diff --check` 通过。
+- 临时 SQLite 测试通过：中文任务/segments 往返、缓存命中、Markdown 生成、删除同步删除文件。
+- 新增接口测试通过：路由注册、批量超限 422、无 timestamps 的 SRT 409。
+- 8000 端口新服务验证：健康接口、`/api/queue`、`/api/cache/stats`、`/api/history`、OpenAPI 路由均正常。
+- Chrome DevTools 打开 `http://127.0.0.1:8000/ui`；批量和历史控件可见，控制台无错误。
+
+**遇到的问题及解决**:
+- SQLite 连接未关闭导致 Windows 临时目录删除时 app.db 被锁。新增 `_db()` 显式 commit/close，问题解决。
+- PowerShell 重启脚本中的 `$` 被外层 shell 展开，导致新服务暂时未启动。改用单引号保护脚本，等待模型加载完成后 8000 恢复。
+- `tests` 不是 Python package，模块路径运行失败，改用 unittest discovery。
+- 并发合并 Future 初版清理过早，改为在对应 worker 任务结束后移除 cache key 映射。
+- 未进行 20 条真实媒体批量、三次真实同 URL 下载合并和队列满的长时间验收，因此不把这些场景记录为端到端通过。
+
+**下一步计划**: task-026 - 端到端验证与文档更新。
+
+**进度**: 25/26 任务完成（task-001~025；task-026 未完成）
+
+---

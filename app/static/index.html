@@ -548,6 +548,10 @@
       <div class="server-badge">API Base: <span class="mono">/api</span> | UI: <span class="mono">/ui</span></div>
     </header>
 
+    <nav class="panel" style="display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;padding:.65rem 1rem">
+      <button class="btn-muted" type="button" onclick="document.getElementById('batchPanel').scrollIntoView({behavior:'smooth'})">批量任务</button>
+      <button class="btn-muted" type="button" onclick="loadHistory()">历史记录</button>
+    </nav>
     <section class="board">
       <section class="panel">
         <h2>任务控制区</h2>
@@ -705,6 +709,17 @@
         </div>
         <textarea id="docPreview" class="doc-preview" readonly>尚未生成整理文档。</textarea>
       </section>
+    </section>
+    <section class="panel" id="batchPanel" style="margin-top:1rem">
+      <div class="section-head"><h2>批量任务</h2><small>最多 20 条</small></div>
+      <textarea id="batchUrls" class="doc-preview" placeholder="每行一个视频 URL"></textarea>
+      <div class="actions"><button class="btn-main" type="button" onclick="submitBatch()">提交批量任务</button><span id="batchSummary" class="mono"></span></div>
+      <div id="batchResults" class="segments"></div>
+    </section>
+    <section class="panel" id="historyPanel" style="margin-top:1rem">
+      <div class="section-head"><h2>历史记录</h2><small id="historyCount"></small></div>
+      <div class="actions"><input id="historySearch" class="url-input" placeholder="搜索标题、文案或 URL"><button class="btn-muted" type="button" onclick="loadHistory()">搜索</button></div>
+      <div id="historyResults" class="segments"></div>
     </section>
   </main>
 
@@ -1353,6 +1368,40 @@
         setTaskBusy(false);
         addLog(`创建任务失败：${error.message}`, "error");
       }
+    }
+
+    let activeBatchId = "";
+    async function submitBatch() {
+      const text = document.getElementById("batchUrls").value.trim();
+      if (!text) return;
+      try {
+        const batch = await requestJSON("/api/extract/batch", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text, enable_timestamp:refs.enableTimestamp.checked})});
+        activeBatchId = batch.batch_id;
+        document.getElementById("batchSummary").textContent = `批次 ${batch.batch_id}：${batch.task_ids.length} 条`;
+        pollBatch();
+      } catch (error) { document.getElementById("batchSummary").textContent = error.message; }
+    }
+    async function pollBatch() {
+      if (!activeBatchId) return;
+      try {
+        const batch = await requestJSON(`/api/batch/${activeBatchId}`);
+        document.getElementById("batchSummary").textContent = `成功 ${batch.succeeded} / 失败 ${batch.failed} / 处理中 ${batch.in_progress} / 排队 ${batch.queued}`;
+        document.getElementById("batchResults").innerHTML = `<table><thead><tr><th>任务</th><th>平台</th><th>状态</th><th>标题</th></tr></thead><tbody>${batch.tasks.map(t=>`<tr><td>${t.task_id}</td><td>${t.platform||'-'}</td><td>${t.status}</td><td>${t.video_title||t.error||'-'}</td></tr>`).join('')}</tbody></table>`;
+        if (batch.succeeded + batch.failed < batch.total) setTimeout(pollBatch, 2000);
+      } catch (error) { document.getElementById("batchSummary").textContent = error.message; }
+    }
+    async function loadHistory() {
+      document.getElementById("historyPanel").scrollIntoView({behavior:"smooth"});
+      const q = document.getElementById("historySearch").value.trim();
+      try {
+        const page = await requestJSON(`/api/history?limit=50&offset=0${q ? `&q=${encodeURIComponent(q)}` : ""}`);
+        document.getElementById("historyCount").textContent = `${page.total} 条记录`;
+        document.getElementById("historyResults").innerHTML = `<table><thead><tr><th>时间</th><th>平台</th><th>标题</th><th>摘要</th><th>操作</th></tr></thead><tbody>${page.items.map(t=>`<tr><td>${new Date(t.created_at).toLocaleString()}</td><td>${t.platform||'-'}</td><td>${t.title||t.task_id}</td><td>${t.text_preview||''}</td><td><a href="/api/task/${t.task_id}/export?format=md">MD</a> <a href="/api/task/${t.task_id}/export?format=txt">TXT</a> <button type="button" onclick="deleteHistory('${t.task_id}')">删除</button></td></tr>`).join('')}</tbody></table>`;
+      } catch (error) { document.getElementById("historyCount").textContent = error.message; }
+    }
+    async function deleteHistory(taskId) {
+      await requestJSON(`/api/history/${taskId}`, {method:"DELETE"});
+      loadHistory();
     }
 
     function exportDocument() {
