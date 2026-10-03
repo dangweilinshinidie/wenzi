@@ -562,6 +562,10 @@
           <input id="enableTimestamp" type="checkbox">
           <span>启用时间戳分段（建议开启）</span>
         </label>
+        <label class="inline-row" for="fallbackAsr">
+          <input id="fallbackAsr" type="checkbox">
+          <span>字幕需要登录时仍使用 ASR</span>
+        </label>
 
         <div class="actions">
           <button id="btnInfo" class="btn-muted" type="button">获取视频信息</button>
@@ -571,6 +575,7 @@
 
         <div class="status-grid" id="statusGrid">
           <div class="status-chip" data-status="pending">pending</div>
+          <div class="status-chip" data-status="fetching_subtitle">fetching subtitle</div>
           <div class="status-chip" data-status="downloading">downloading</div>
           <div class="status-chip" data-status="converting">converting</div>
           <div class="status-chip" data-status="recognizing">recognizing</div>
@@ -600,6 +605,10 @@
           <div class="item">
             <span class="label">进度描述</span>
             <span id="taskProgressText">-</span>
+          </div>
+          <div class="item">
+            <span class="label">实际档位 / 来源</span>
+            <span id="taskTierText">-</span>
           </div>
           <div class="item">
             <span class="label">文本长度</span>
@@ -710,9 +719,10 @@
       detectTimer: null,
     };
 
-    const statusOrder = ["pending", "downloading", "converting", "recognizing", "completed", "failed"];
+    const statusOrder = ["pending", "fetching_subtitle", "downloading", "converting", "recognizing", "completed", "failed"];
     const statusPercentMap = {
       pending: 5,
+      fetching_subtitle: 18,
       downloading: 30,
       converting: 55,
       recognizing: 82,
@@ -724,6 +734,7 @@
       videoUrl: document.getElementById("videoUrl"),
       platformHint: document.getElementById("platformHint"),
       enableTimestamp: document.getElementById("enableTimestamp"),
+      fallbackAsr: document.getElementById("fallbackAsr"),
       btnInfo: document.getElementById("btnInfo"),
       btnExtract: document.getElementById("btnExtract"),
       btnReset: document.getElementById("btnReset"),
@@ -741,6 +752,7 @@
       taskStatusText: document.getElementById("taskStatusText"),
       taskProgressText: document.getElementById("taskProgressText"),
       textLengthText: document.getElementById("textLengthText"),
+      taskTierText: document.getElementById("taskTierText"),
       videoThumb: document.getElementById("videoThumb"),
       videoTitle: document.getElementById("videoTitle"),
       videoDuration: document.getElementById("videoDuration"),
@@ -918,6 +930,7 @@
       refs.taskIdText.textContent = task?.task_id || "-";
       refs.taskStatusText.textContent = task?.status || "-";
       refs.taskProgressText.textContent = task?.progress || "-";
+      refs.taskTierText.textContent = [task?.resolved_tier, task?.source].filter(Boolean).join(" / ") || "-";
       updateStatusChips(task?.status || "");
       updateProgressUI(task?.status || "");
     }
@@ -1316,6 +1329,7 @@
         const payload = {
           url,
           enable_timestamp: refs.enableTimestamp.checked,
+          fallback_asr: refs.fallbackAsr.checked,
         };
         addLog("正在创建提取任务...");
         const res = await requestJSON("/api/extract", {

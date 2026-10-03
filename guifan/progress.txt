@@ -580,3 +580,43 @@ At the end of each AI work session, please add a new session record at the end o
 **下一步计划**: task-023 - 实现运行时判定链与字幕优先内容获取管线。
 
 **进度**: 22/26 任务完成（task-001~022）
+
+---
+
+### 会话 21 - 2026-10-03
+**完成任务**: task-023 - 实现运行时判定链与字幕优先内容获取管线
+
+**实现内容**:
+- 新增 `app/services/router.py`：逐视频调用 yt-dlp 探测；无 extractor 和媒体直链不发起探测；按探测结果选择 A/A_LOCKED/B1/B2/C；分类 cookie_invalid、rate_limited、region_blocked、link_expired、parse_failed、network_error，并生成中文提示。
+- 新增 `app/services/subtitles.py`：记录 AI-Video-Transcriber Apache-2.0 来源及修改范围；实现 VTT/SRT 解析、HTML 标签/实体清理、长度过滤、滚动前缀字幕去重、MM:SS 辅助格式化和优先语言选择。字幕下载使用已探测 info、Cookie Vault/请求头选项、独立临时目录及 finally 清理；异常返回 None 走 ASR。
+- `app/models.py` 增加 `FETCHING_SUBTITLE`、`TranscriptSource`、任务档位/来源/平台/规范化 URL/语言/错误类型字段和 `fallback_asr` 请求选项。
+- `app/routes.py` 实现 A 字幕快路径、A_LOCKED 明确提示及可选 ASR 降级、B1/B2 下载-ASR 路径、C 直链路径、任务总超时、探测/下载异常重试、磁盘空间检查、Cookie 失效状态联动和签名参数脱敏。并修正旧代码中 `/api/extract` 装饰器误挂在 URL 规范化辅助函数上的路由缺陷。
+- `app/services/downloader.py` 支持配置下载 worker/限速/代理直连域名和协议验证、平台 Referer/UA、无 Cookie 提示、探测超时、探测 info 复用与可选预取 info 下载。
+- `app/config.py` 与 `.env.example` 增加 `PROBE_TIMEOUT`、`TASK_TIMEOUT`、`YTDLP_RATE_LIMIT`、`YTDLP_MAX_WORKERS`、`YTDLP_PROXY_DIRECT_DOMAINS`、`MIN_FREE_SPACE_MB`。
+- 前端增加字幕获取状态、档位/来源展示和“字幕需要登录时仍使用 ASR”显式选项。
+- 新增 `tests/test_task023.py` 覆盖同平台视频级 A/B1 差异、C 不探测、403/B2、A_LOCKED、错误分类、签名脱敏、VTT/SRT 时间及滚动字幕去重。
+
+**测试结果**:
+- `python -m compileall -q app tests run.py` 通过。
+- `python -m unittest discover -s tests -v`：17 项通过（含 task-022 回归）。
+- `git diff --check` 通过。
+- 8000 服务重启成功；`GET /`、`/ui`、`/docs`、`/openapi.json` 均返回 200；OpenAPI 包含 `fallback_asr` 与任务新增字段；UI 含字幕状态、降级选项、档位展示；`GET /api/platforms` 返回 20 项。
+- 8000 上对无 extractor 的快手 URL 做受控任务验证：返回 `resolved_tier=C`、`status=failed` 和直链引导，没有访问媒体站点；服务日志无 ASGI 未捕获异常，任务临时目录清理由 finally 执行。
+- 已对 task-017 使用过的真实 B 站短视频 `https://www.bilibili.com/video/BV1Lg411n7ZP` 做 8000 端口回归：任务最终 `completed`，`resolved_tier=B1`、`source=asr`，返回 132 字文本和 15 个时间戳分段；证明新探测链路下旧 ASR 流程仍正常。
+- 未运行真实 YouTube 字幕快路径、抖音/小红书 B2 Cookie 路径或真实 A_LOCKED 登录墙场景，因此不能把这些平台/档位声明为当前账号和网络下的端到端通过。Chrome DevTools MCP 未安装；Selenium 因本机缺少 ChromeDriver 无法启动，未生成浏览器截图。
+
+**遇到的问题**:
+- `/api/extract` 原装饰器错误地附着于 `_normalize_task_url`，而真正创建任务的函数无路由；检查 OpenAPI 才发现并修复。
+- Windows 命令包装器首次重启服务时展开了 PowerShell `$` 变量，旧服务停止后新服务未启动；改用单引号包裹命令启动，新进程 PID 20712，服务恢复正常。
+- 中文响应在 Windows shell 输出为乱码，但 `/ui` 的 Content-Type 明确为 `text/html; charset=utf-8`，接口 JSON 经 UTF-8 解析字段正确；服务错误日志的编码显示仍受 shell codepage 影响。
+- 真实平台字幕、Cookie 登录墙与音频识别测试依赖用户账号/平台可用链接及浏览器自动化工具，本次环境未完成这些步骤。
+- `tmp/` 中发现任务开始前已有 WAV 文件；保留原文件，没有做清理或覆盖。
+
+**解决方案**:
+- 修正路由装饰器位置；所有任务分支用隔离 mock 测试，并补充真实 B 站回归，避免因真实平台限制误报成功。
+- 服务使用 PowerShell `Start-Process` 重新启动，并逐项确认健康/API/UI 响应。
+- 当前实现对不支持平台返回明确直链引导；任务进度和错误均在日志/模型保留可追踪字段。
+
+**下一步计划**: task-024 - 实现 SQLite 持久化、文案落盘、导出接口与历史记录
+
+**进度**: 23/26 任务完成（task-001~023）

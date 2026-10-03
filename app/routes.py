@@ -23,6 +23,8 @@ from app.models import (
     DetectResponse,
     ExtractRequest,
     ExtractResponse,
+    Segment,
+    TranscriptSource,
     TaskResult,
     TaskStatus,
     VideoInfoResponse,
@@ -31,7 +33,9 @@ from app.services.asr import recognize
 from app.services.audio import convert_to_16k_wav
 from app.services.cookies import browser_cookies, cookie_vault, infer_domain, normalize_domain
 from app.services.downloader import download_audio, extract_info
-from app.services.platforms import all_platforms, detect, unsupported_hint
+from app.services.platforms import ResolvedTier, all_platforms, detect, unsupported_hint
+from app.services.router import classify_error, is_direct_media_url, resolve_video, sanitize_url
+from app.services.subtitles import fetch_subtitles
 from app.services.urlnorm import clean_share_text, is_short_link, resolve_short_link, strip_tracking
 from app.task_manager import task_manager
 
@@ -124,7 +128,6 @@ async def _check_cookie(url: str) -> CookieCheckResponse:
     )
 
 
-@router.post("/extract", response_model=ExtractResponse)
 async def _normalize_task_url(raw_url: str) -> tuple[str, str]:
     cleaned = clean_share_text(raw_url)
     logger.info("URL normalization clean_share_text: %s -> %s", raw_url, cleaned)
@@ -151,11 +154,12 @@ async def _normalize_task_url(raw_url: str) -> tuple[str, str]:
     return normalized, platform_key
 
 
+@router.post("/extract", response_model=ExtractResponse)
 async def create_extract_task(request: ExtractRequest) -> ExtractResponse:
-    normalized_url, _ = await _normalize_task_url(request.url)
+    normalized_url, platform_key = await _normalize_task_url(request.url)
     task_id = await task_manager.create_task()
     asyncio.create_task(
-        _process_task(task_id, normalized_url, request.enable_timestamp),
+        _process_task(task_id, normalized_url, request.enable_timestamp, request.fallback_asr, platform_key),
         name=f"extract-{task_id}",
     )
     return ExtractResponse(
@@ -351,53 +355,97 @@ async def check_cookie(request: CookieCheckRequest) -> CookieCheckResponse:
     return result
 
 
-async def _process_task(task_id: str, url: str, enable_timestamp: bool) -> None:
+async def _process_task(
+    task_id: str,
+    url: str,
+    enable_timestamp: bool,
+    fallback_asr: bool = False,
+    platform_key: str | None = None,
+) -> None:
     task_tmp_dir = Path(settings.TEMP_DIR) / task_id
     task_tmp_dir.mkdir(parents=True, exist_ok=True)
 
-    try:
+    async def run_pipeline() -> None:
+        platform = detect(url)
+        await task_manager.update_task(task_id, platform=platform_key or platform.key, normalized_url=url)
+        decision = await resolve_video(url)
         await task_manager.update_task(
             task_id,
-            status=TaskStatus.DOWNLOADING,
-            progress="Downloading audio.",
+            resolved_tier=decision.tier.value,
+            platform=platform_key or decision.platform.key,
+            normalized_url=url,
+            video_title=(decision.info or {}).get("title"),
+            video_duration=(decision.info or {}).get("duration"),
         )
-        audio_path, video_info = await download_audio(url, str(task_tmp_dir), task_id)
-        await task_manager.update_task(
-            task_id,
-            video_title=video_info.get("title"),
-            video_duration=video_info.get("duration"),
-        )
+        if decision.tier == ResolvedTier.A_LOCKED and not fallback_asr:
+            raise RuntimeError(decision.message)
+        if decision.tier == ResolvedTier.A_LOCKED and fallback_asr:
+            await task_manager.update_task(task_id, resolved_tier="B1")
+        if decision.tier == ResolvedTier.C and not is_direct_media_url(url):
+            raise RuntimeError(decision.message)
+        if decision.error_type:
+            raise RuntimeError(decision.message)
 
+        if decision.tier == ResolvedTier.A:
+            await task_manager.update_task(task_id, status=TaskStatus.FETCHING_SUBTITLE, progress="正在获取字幕。")
+            result = await fetch_subtitles(url, decision.info or {})
+            if result:
+                entries, language = result
+                segments = [Segment(**entry) for entry in entries]
+                await task_manager.update_task(
+                    task_id, status=TaskStatus.COMPLETED, progress="字幕提取完成。",
+                    text="\\n".join(item.text for item in segments),
+                    segments=segments if enable_timestamp else None,
+                    source=TranscriptSource.SUBTITLE, subtitle_lang=language, language=language,
+                )
+                return
+            logger.warning("Task %s subtitle path returned no usable captions; falling back to ASR", task_id)
+            await task_manager.update_task(task_id, resolved_tier="B1")
+
+        direct = is_direct_media_url(url)
+        try:
+            free_bytes = shutil.disk_usage(task_tmp_dir).free
+            if free_bytes < settings.MIN_FREE_SPACE_MB * 1024 * 1024:
+                raise RuntimeError("磁盘空间不足，请清理临时文件后重试。")
+        except OSError:
+            pass
+        await task_manager.update_task(task_id, status=TaskStatus.DOWNLOADING, progress="正在下载媒体。")
+        for attempt in range(3):
+            try:
+                audio_path, video_info = await download_audio(url, str(task_tmp_dir), task_id, decision.info)
+                break
+            except Exception as exc:
+                error_type = classify_error(exc)
+                if error_type not in {"network_error", "rate_limited"} or attempt == 2:
+                    raise
+                await asyncio.sleep(2 ** (attempt + 1))
+        await task_manager.update_task(task_id, video_title=video_info.get("title"), video_duration=video_info.get("duration"))
         converted_audio_path = task_tmp_dir / f"{task_id}_16k.wav"
-        await task_manager.update_task(
-            task_id,
-            status=TaskStatus.CONVERTING,
-            progress="Converting audio.",
-        )
+        await task_manager.update_task(task_id, status=TaskStatus.CONVERTING, progress="正在转换音频。")
         wav_path = await convert_to_16k_wav(audio_path, str(converted_audio_path))
-
-        await task_manager.update_task(
-            task_id,
-            status=TaskStatus.RECOGNIZING,
-            progress="Recognizing speech.",
-        )
+        await task_manager.update_task(task_id, status=TaskStatus.RECOGNIZING, progress="正在识别语音。")
         text, segments = await recognize(wav_path, enable_timestamp=enable_timestamp)
-
         await task_manager.update_task(
-            task_id,
-            status=TaskStatus.COMPLETED,
-            progress="Completed.",
-            text=text,
-            segments=segments if enable_timestamp else None,
-            error=None,
+            task_id, status=TaskStatus.COMPLETED, progress="转写完成。", text=text,
+            segments=segments if enable_timestamp else None, source=TranscriptSource.DIRECT if direct else TranscriptSource.ASR,
+            language="zh", error=None,
         )
+
+    try:
+        await asyncio.wait_for(run_pipeline(), timeout=settings.TASK_TIMEOUT)
     except Exception as exc:
-        logger.exception("Task %s failed", task_id)
+        error_type = classify_error(exc)
+        message = str(exc)
+        if error_type == "cookie_invalid":
+            try:
+                cookie_vault.mark_check(infer_domain(url), False)
+            except ValueError:
+                pass
+        logger.error("Task %s failed (%s): %s", task_id, error_type, message.replace(url, sanitize_url(url)))
+        message = message.replace(url, sanitize_url(url))
         await task_manager.update_task(
-            task_id,
-            status=TaskStatus.FAILED,
-            progress="Failed.",
-            error=str(exc),
+            task_id, status=TaskStatus.FAILED, progress="任务失败。", error=message,
+            error_type=error_type,
         )
     finally:
         shutil.rmtree(task_tmp_dir, ignore_errors=True)

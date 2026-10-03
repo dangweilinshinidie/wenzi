@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 class TaskStatus(str, Enum):
     PENDING = "pending"
+    FETCHING_SUBTITLE = "fetching_subtitle"
     DOWNLOADING = "downloading"
     CONVERTING = "converting"
     RECOGNIZING = "recognizing"
@@ -16,6 +17,7 @@ class TaskStatus(str, Enum):
 class ExtractRequest(BaseModel):
     url: str = Field(..., min_length=1, description="视频 URL")
     enable_timestamp: bool = Field(False, description="是否返回时间戳")
+    fallback_asr: bool = Field(False, description="字幕受登录限制时是否主动降级为 ASR")
 
 
 class ExtractResponse(BaseModel):
@@ -30,6 +32,12 @@ class Segment(BaseModel):
     text: str = Field(..., description="文本内容")
 
 
+class TranscriptSource(str, Enum):
+    SUBTITLE = "subtitle"
+    ASR = "asr"
+    DIRECT = "direct"
+
+
 class TaskResult(BaseModel):
     task_id: str
     status: TaskStatus = TaskStatus.PENDING
@@ -41,6 +49,13 @@ class TaskResult(BaseModel):
     text: Optional[str] = None
     segments: Optional[list[Segment]] = None
     error: Optional[str] = None
+    error_type: Optional[str] = None
+    resolved_tier: Optional[str] = None
+    source: Optional[TranscriptSource] = None
+    platform: Optional[str] = None
+    normalized_url: Optional[str] = None
+    language: Optional[str] = None
+    subtitle_lang: Optional[str] = None
 
 
 class PlatformInfo(BaseModel):

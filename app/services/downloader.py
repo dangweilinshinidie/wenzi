@@ -17,7 +17,7 @@ from app.services.cookies import cookie_vault, infer_domain
 
 logger = logging.getLogger(__name__)
 
-_executor = ThreadPoolExecutor(max_workers=3)
+_executor = ThreadPoolExecutor(max_workers=max(1, settings.YTDLP_MAX_WORKERS))
 _DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -71,8 +71,20 @@ def _base_ydl_options(url: str = "") -> dict[str, Any]:
         if legacy_domain and legacy_cookie.is_file():
             opts["cookiefile"] = str(legacy_cookie)
 
-    if settings.YTDLP_PROXY:
-        opts["proxy"] = settings.YTDLP_PROXY
+    direct_domains = tuple(
+        item.strip().lower().lstrip(".")
+        for item in settings.YTDLP_PROXY_DIRECT_DOMAINS.split(",")
+        if item.strip()
+    )
+    host = (urlsplit(url).hostname or "").lower() if url else ""
+    direct = any(host == domain or host.endswith("." + domain) for domain in direct_domains)
+    if settings.YTDLP_PROXY and not direct:
+        proxy = settings.YTDLP_PROXY.strip()
+        if not proxy.startswith(("http://", "https://", "socks5://")):
+            raise ValueError("YTDLP_PROXY 仅支持 http://、https:// 或 socks5:// 代理")
+        opts["proxy"] = proxy
+    if settings.YTDLP_RATE_LIMIT > 0:
+        opts["ratelimit"] = settings.YTDLP_RATE_LIMIT
 
     browser_spec = (settings.YTDLP_COOKIES_FROM_BROWSER or "").strip()
     if browser_spec:
@@ -85,11 +97,28 @@ def _base_ydl_options(url: str = "") -> dict[str, Any]:
 
     headers = {"User-Agent": settings.YTDLP_USER_AGENT or _DEFAULT_USER_AGENT}
     try:
-        host = (urlsplit(url).hostname or "").lower()
-    except ValueError:
-        host = ""
-    if host.endswith(("bilibili.com", "b23.tv")):
-        headers["Referer"] = "https://www.bilibili.com/"
+        from app.services.platforms import detect
+        platform_key = detect(url).key
+    except Exception:
+        platform_key = "generic"
+    referers = {
+        "bilibili": "https://www.bilibili.com/",
+        "douyin": "https://www.douyin.com/",
+        "xiaohongshu": "https://www.xiaohongshu.com/",
+        "youtube": "https://www.youtube.com/",
+        "tiktok": "https://www.tiktok.com/",
+        "instagram": "https://www.instagram.com/",
+    }
+    referer = referers.get(platform_key)
+    if referer:
+        headers["Referer"] = referer
+    try:
+        from app.services.platforms import detect
+        platform = detect(url)
+        if platform.may_need_cookie and not cookie_opts:
+            logger.warning("Platform %s may require Cookie; configure it via /api/cookie/config", platform.key)
+    except Exception:
+        pass
     opts["http_headers"] = headers
 
     return opts
@@ -162,11 +191,12 @@ def _bilibili_stream(ydl: yt_dlp.YoutubeDL, url: str) -> tuple[str, dict[str, An
 
 def _extract_info_sync(url: str) -> dict[str, Any]:
     opts = _base_ydl_options(url)
+    opts["socket_timeout"] = settings.PROBE_TIMEOUT
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
         info = _pick_video_entry(info)
-        return _normalize_video_info(info)
+        return {**info, **_normalize_video_info(info)}
     except DownloadError:
         if not _extract_bilibili_bvid(url):
             raise
@@ -201,7 +231,7 @@ def _resolve_downloaded_wav(info: dict[str, Any], output_dir: Path, task_id: str
     raise FileNotFoundError("Unable to locate downloaded WAV file.")
 
 
-def _download_audio_sync(url: str, output_dir: str, task_id: str) -> tuple[str, dict[str, Any]]:
+def _download_audio_sync(url: str, output_dir: str, task_id: str, prefetched_info: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -222,7 +252,10 @@ def _download_audio_sync(url: str, output_dir: str, task_id: str) -> tuple[str, 
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+            if prefetched_info and prefetched_info.get("formats"):
+                info = ydl.process_ie_result(prefetched_info, download=True)
+            else:
+                info = ydl.extract_info(url, download=True)
         info = _pick_video_entry(info)
         audio_file = _resolve_downloaded_wav(info, output_path, task_id)
         return str(audio_file.resolve()), _normalize_video_info(info)
@@ -242,6 +275,6 @@ async def extract_info(url: str) -> dict[str, Any]:
     return await loop.run_in_executor(_executor, _extract_info_sync, url)
 
 
-async def download_audio(url: str, output_dir: str, task_id: str) -> tuple[str, dict[str, Any]]:
+async def download_audio(url: str, output_dir: str, task_id: str, prefetched_info: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_executor, _download_audio_sync, url, output_dir, task_id)
+    return await loop.run_in_executor(_executor, _download_audio_sync, url, output_dir, task_id, prefetched_info)

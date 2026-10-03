@@ -22,6 +22,14 @@ class Settings(BaseSettings):
 
     # 下载超时（秒）
     DOWNLOAD_TIMEOUT: int = 600
+    # 元信息探测超时与单任务总超时（秒）
+    PROBE_TIMEOUT: int = 30
+    TASK_TIMEOUT: int = 3600
+    # 下载治理：0 表示不限制；代理直连域名使用逗号分隔
+    YTDLP_RATE_LIMIT: int = 0
+    YTDLP_MAX_WORKERS: int = 3
+    YTDLP_PROXY_DIRECT_DOMAINS: str = ""
+    MIN_FREE_SPACE_MB: int = 100
 
     # 最大任务数
     MAX_TASKS: int = 100
