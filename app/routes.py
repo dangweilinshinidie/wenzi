@@ -378,7 +378,14 @@ async def _process_task(
             video_duration=(decision.info or {}).get("duration"),
         )
         if decision.tier == ResolvedTier.A_LOCKED and not fallback_asr:
-            raise RuntimeError(decision.message)
+            await task_manager.update_task(
+                task_id,
+                status=TaskStatus.FAILED,
+                progress="检测到字幕登录限制。",
+                error=decision.message,
+                error_type="subtitle_login_required",
+            )
+            return
         if decision.tier == ResolvedTier.A_LOCKED and fallback_asr:
             await task_manager.update_task(task_id, resolved_tier="B1")
         if decision.tier == ResolvedTier.C and not is_direct_media_url(url):

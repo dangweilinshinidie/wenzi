@@ -1,13 +1,13 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import re
-from urllib.parse import urlencode, urlsplit
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode, urlsplit
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
@@ -16,6 +16,30 @@ from app.config import settings
 from app.services.cookies import cookie_vault, infer_domain
 
 logger = logging.getLogger(__name__)
+
+
+class _YtDlpCaptureLogger:
+    """Capture extractor diagnostics so runtime routing can inspect login walls."""
+
+    def __init__(self) -> None:
+        self.warnings: list[str] = []
+
+    def debug(self, message: str) -> None:
+        return None
+
+    def info(self, message: str) -> None:
+        return None
+
+    def warning(self, message: str) -> None:
+        text = str(message)
+        self.warnings.append(text)
+        logger.warning("yt-dlp: %s", text)
+
+    def error(self, message: str) -> None:
+        text = str(message)
+        self.warnings.append(text)
+        logger.error("yt-dlp: %s", text)
+
 
 _executor = ThreadPoolExecutor(max_workers=max(1, settings.YTDLP_MAX_WORKERS))
 _DEFAULT_USER_AGENT = (
@@ -132,6 +156,51 @@ def _extract_bilibili_bvid(url: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _bilibili_subtitle_probe(
+    ydl: yt_dlp.YoutubeDL,
+    url: str,
+    info: dict[str, Any],
+) -> dict[str, Any]:
+    """Read Bilibili's subtitle permission bit omitted from normal extractor info."""
+
+    bvid = _extract_bilibili_bvid(url)
+    if not bvid:
+        return {}
+    pages = _bilibili_api_json(ydl, "/x/player/pagelist", {"bvid": bvid})
+    page_list = pages if isinstance(pages, list) else (pages.get("pages") or []) if isinstance(pages, dict) else []
+    page = page_list[0] if page_list else None
+    cid = page.get("cid") if isinstance(page, dict) else None
+    if not cid:
+        return {}
+    data = _bilibili_api_json(ydl, "/x/player/wbi/v2", {"bvid": bvid, "cid": cid})
+    subtitle = data.get("subtitle") if isinstance(data, dict) else {}
+    return {
+        "need_login_subtitle": bool(data.get("need_login_subtitle")) if isinstance(data, dict) else False,
+        "subtitle_count": len(subtitle.get("subtitles") or []) if isinstance(subtitle, dict) else 0,
+        "cid": cid,
+    }
+
+
+def _enrich_bilibili_subtitle_status(
+    ydl: yt_dlp.YoutubeDL,
+    url: str,
+    info: dict[str, Any],
+    capture_logger: _YtDlpCaptureLogger,
+) -> dict[str, Any]:
+    if not _extract_bilibili_bvid(url):
+        return info
+    try:
+        probe = _bilibili_subtitle_probe(ydl, url, info)
+    except Exception as exc:
+        capture_logger.warning(f"Bilibili subtitle permission probe failed: {exc}")
+        return info
+    if probe:
+        info["_subtitle_probe"] = probe
+        if probe.get("need_login_subtitle"):
+            info["need_login_subtitle"] = True
+    return info
+
+
 def _bilibili_api_json(ydl: yt_dlp.YoutubeDL, endpoint: str, params: dict[str, Any]) -> Any:
     query = urlencode({key: value for key, value in params.items() if value is not None})
     response = ydl.urlopen(f"https://api.bilibili.com{endpoint}?{query}")
@@ -192,17 +261,31 @@ def _bilibili_stream(ydl: yt_dlp.YoutubeDL, url: str) -> tuple[str, dict[str, An
 def _extract_info_sync(url: str) -> dict[str, Any]:
     opts = _base_ydl_options(url)
     opts["socket_timeout"] = settings.PROBE_TIMEOUT
+    capture_logger = _YtDlpCaptureLogger()
+    # yt-dlp suppresses report_warning when no_warnings is true. Probes must
+    # retain extractor warnings because Bilibili reports login-gated subtitles there.
+    opts["no_warnings"] = False
+    opts["logger"] = capture_logger
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
-        info = _pick_video_entry(info)
-        return {**info, **_normalize_video_info(info)}
+            info = _pick_video_entry(info)
+            info = _enrich_bilibili_subtitle_status(ydl, url, info, capture_logger)
+        return {
+            **info,
+            **_normalize_video_info(info),
+            "_runtime_warnings": list(capture_logger.warnings),
+        }
     except DownloadError:
         if not _extract_bilibili_bvid(url):
             raise
         with yt_dlp.YoutubeDL(opts) as ydl:
             _, info = _bilibili_stream(ydl, url)
-        return _normalize_video_info(info)
+        return {
+            **info,
+            **_normalize_video_info(info),
+            "_runtime_warnings": list(capture_logger.warnings),
+        }
 
 
 def _resolve_downloaded_wav(info: dict[str, Any], output_dir: Path, task_id: str) -> Path:
@@ -231,7 +314,12 @@ def _resolve_downloaded_wav(info: dict[str, Any], output_dir: Path, task_id: str
     raise FileNotFoundError("Unable to locate downloaded WAV file.")
 
 
-def _download_audio_sync(url: str, output_dir: str, task_id: str, prefetched_info: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+def _download_audio_sync(
+    url: str,
+    output_dir: str,
+    task_id: str,
+    prefetched_info: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -275,6 +363,18 @@ async def extract_info(url: str) -> dict[str, Any]:
     return await loop.run_in_executor(_executor, _extract_info_sync, url)
 
 
-async def download_audio(url: str, output_dir: str, task_id: str, prefetched_info: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+async def download_audio(
+    url: str,
+    output_dir: str,
+    task_id: str,
+    prefetched_info: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_executor, _download_audio_sync, url, output_dir, task_id, prefetched_info)
+    return await loop.run_in_executor(
+        _executor,
+        _download_audio_sync,
+        url,
+        output_dir,
+        task_id,
+        prefetched_info,
+    )

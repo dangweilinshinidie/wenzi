@@ -81,7 +81,7 @@ def _has_usable_subtitles(info: dict[str, Any]) -> bool:
         if not isinstance(tracks, dict):
             continue
         for language, entries in tracks.items():
-            if str(language).lower() == "live_chat":
+            if str(language).lower() in {"live_chat", "danmaku"}:
                 continue
             if entries:
                 return True
@@ -92,8 +92,21 @@ def _is_locked_subtitle_info(info: dict[str, Any]) -> bool:
     markers = ("need_login_subtitle", "subtitle_login_required", "login_required", "needs_login")
     if any(info.get(marker) for marker in markers):
         return True
+    probe = info.get("_subtitle_probe") or {}
+    if probe.get("need_login_subtitle"):
+        return True
     text = " ".join(str(info.get(key, "")) for key in ("availability", "description", "error"))
-    return bool(re.search(r"subtitle.{0,30}(login|sign.?in|member)|login.{0,30}subtitle", text, re.I))
+    text += " " + " ".join(str(value) for value in info.get("_runtime_warnings", []))
+    return bool(
+        re.search(
+            r"subtitle.{0,120}(login|sign.?in|member|cookie)|"
+            r"(login|sign.?in|member|cookie).{0,120}subtitle|"
+            r"字幕.{0,40}(登录|登入|會員|会员|cookie)|"
+            r"(登录|登入|會員|会员|cookie).{0,40}字幕",
+            text,
+            re.I,
+        )
+    )
 
 
 def _cookie_available(url: str) -> bool:

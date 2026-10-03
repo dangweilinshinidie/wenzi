@@ -583,8 +583,40 @@ At the end of each AI work session, please add a new session record at the end o
 
 ---
 
-### 会话 21 - 2026-10-03
-**完成任务**: task-023 - 实现运行时判定链与字幕优先内容获取管线
+### 会话 21 - 2026-10-03（更正：task-023 A_LOCKED 真实探测）
+
+**本次继续处理**: 用户报告真实 B 站视频曾判为 B1，要求记录实际字幕轨道与 yt-dlp warning，并修正 A_LOCKED 识别。
+
+**实测证据**:
+- 检查时发现工作区 `app/services/downloader.py` 曾被覆盖为 11,817 个 NUL 字节，Python 导入报 `source code string cannot contain null bytes`，导致此前探测脚本无有效运行结果。该文件从 `HEAD` 中恢复 task-023 所需实现后，确认 NUL 字节数为 0。
+- 真实样例：`https://www.bilibili.com/video/BV1Lg411n7ZP`。yt-dlp 普通 `extract_info(download=False)` 返回 `subtitles={}`、`automatic_captions=null`、`_runtime_warnings=[]`，没有登录墙字段。
+- 同一视频的 B 站 `x/player/pagelist` 返回 `cid=923036239`；`x/player/wbi/v2?bvid=BV1Lg411n7ZP&cid=923036239` 返回 `data.need_login_subtitle=true`、字幕列表为空。这证明权限信号需在 extractor 随后执行的字幕探测中读取，不会出现在普通视频信息结果中。
+- 修复后本地 `resolve_video()` 对同一链接返回 `A_LOCKED`，`_subtitle_probe={need_login_subtitle: true, subtitle_count: 0, cid: 923036239}`。
+- 8000 API 默认提交（`fallback_asr=false`）返回任务失败状态，`resolved_tier=A_LOCKED`、`error_type=subtitle_login_required`，没有进入 downloading/ASR。
+- 同链接显式提交（`fallback_asr=true`）后任务依次经过 downloading、recognizing、completed，最终 `resolved_tier=B1`、`source=asr`，时间戳片段非空。
+
+**修复内容**:
+- 恢复损坏的 `app/services/downloader.py`，保留当前 task-023 的探测超时、下载预取、代理/限速配置等代码。
+- yt-dlp 探测显式设 `no_warnings=false` 并注入捕获 logger；warning/error 原文写入 `_runtime_warnings`，B 站 fallback 也不丢弃 warning。
+- 同一个 yt-dlp session 对 B 站额外读取 pagelist 和 `x/player/wbi/v2`，将 `need_login_subtitle`、字幕数、cid 附到 `_subtitle_probe`；API 探测失败只记录 warning，不中止普通识别。
+- `router.py` 优先识别 `_subtitle_probe.need_login_subtitle`，并支持中英文登录字幕 warning。
+- `routes.py` 将 A_LOCKED 的默认拒绝分类为 `subtitle_login_required`，避免把字幕登录墙错误标为 `cookie_invalid` 并错误置坏 Cookie 元数据。
+- `tests/test_task023.py` 增加 warning 采集/传递、B 站权限 API 数据解析、权限元数据路由、中英文 warning 覆盖。
+- task-023 的 `passes` 保持 false：真实 A_LOCKED 与显式 ASR 降级已验证，但 YouTube 字幕路径、其他平台端到端与完整回归仍未完成。
+
+**验证**:
+- `python -m unittest discover -s tests -v`：21 项通过。
+- `python -m compileall -q app tests run.py`：通过；downloader NUL 字节检查通过。
+- 8000 API 的默认 A_LOCKED 与显式 ASR 降级两条路径均实测。
+
+**剩余事项**:
+- 本机终端对中文任务内容显示乱码，但 HTTP UTF-8 字段与任务档位正确；不影响判断。
+- task-023 仍未整体完成，不应推进 task-024。
+
+---
+
+### 会话 21 - 2026-10-03（初始实现记录，后续已更正）
+**初始实现**: task-023 - 实现运行时判定链与字幕优先内容获取管线（当时误将未完成的端到端验收标记为完成，详见上方更正记录）
 
 **实现内容**:
 - 新增 `app/services/router.py`：逐视频调用 yt-dlp 探测；无 extractor 和媒体直链不发起探测；按探测结果选择 A/A_LOCKED/B1/B2/C；分类 cookie_invalid、rate_limited、region_blocked、link_expired、parse_failed、network_error，并生成中文提示。
@@ -598,7 +630,7 @@ At the end of each AI work session, please add a new session record at the end o
 
 **测试结果**:
 - `python -m compileall -q app tests run.py` 通过。
-- `python -m unittest discover -s tests -v`：17 项通过（含 task-022 回归）。
+- 初始实现阶段记录为 17 项通过；后续更正阶段已扩展并验证为 21 项通过。
 - `git diff --check` 通过。
 - 8000 服务重启成功；`GET /`、`/ui`、`/docs`、`/openapi.json` 均返回 200；OpenAPI 包含 `fallback_asr` 与任务新增字段；UI 含字幕状态、降级选项、档位展示；`GET /api/platforms` 返回 20 项。
 - 8000 上对无 extractor 的快手 URL 做受控任务验证：返回 `resolved_tier=C`、`status=failed` 和直链引导，没有访问媒体站点；服务日志无 ASGI 未捕获异常，任务临时目录清理由 finally 执行。
@@ -617,6 +649,6 @@ At the end of each AI work session, please add a new session record at the end o
 - 服务使用 PowerShell `Start-Process` 重新启动，并逐项确认健康/API/UI 响应。
 - 当前实现对不支持平台返回明确直链引导；任务进度和错误均在日志/模型保留可追踪字段。
 
-**下一步计划**: task-024 - 实现 SQLite 持久化、文案落盘、导出接口与历史记录
+**下一步计划**: 完成 task-023 剩余字幕路径与平台端到端验收后，再进入 task-024。
 
-**进度**: 23/26 任务完成（task-001~023）
+**进度**: 22/26 任务完成；task-023 实现已存在，但端到端 A_LOCKED 验收未通过

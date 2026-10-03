@@ -372,7 +372,7 @@
       "端到端自测：A_LOCKED 场景下必须出现「配置 cookie 可秒出字幕」的提示，而不是直接悄悄跑 ASR",
       "回归自测：task-017 已验证的 B站 ASR 全流程仍然正常工作"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "id": "task-024",

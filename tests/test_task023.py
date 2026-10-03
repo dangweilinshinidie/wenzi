@@ -6,7 +6,46 @@ from unittest.mock import patch
 
 from app.services.platforms import ResolvedTier
 from app.services.router import classify_error, is_direct_media_url, resolve_video, sanitize_url
+from app.services.downloader import _extract_info_sync
 from app.services.subtitles import _normalize_time, _parse_srt, _parse_vtt
+
+
+class DownloaderProbeTests(unittest.TestCase):
+    def test_probe_enables_warning_capture_and_returns_warning_metadata(self):
+        warning = "Subtitles are only available when logged in. Sign in"
+
+        class FakeYoutubeDL:
+            def __init__(self, options):
+                self.options = options
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def extract_info(self, url, download=False):
+                self.options["logger"].warning(warning)
+                return {"id": "video", "title": "sample", "subtitles": {}}
+
+        with patch("app.services.downloader._base_ydl_options", return_value={}), patch(
+            "app.services.downloader.yt_dlp.YoutubeDL", FakeYoutubeDL
+        ), patch("app.services.downloader._extract_bilibili_bvid", return_value=None):
+            info = _extract_info_sync("https://example.com/video")
+
+        self.assertEqual(info["_runtime_warnings"], [warning])
+        self.assertEqual(info["subtitles"], {})
+
+    def test_bilibili_permission_probe_extracts_login_flag(self):
+        from app.services.downloader import _bilibili_subtitle_probe
+
+        with patch(
+            "app.services.downloader._bilibili_api_json",
+            side_effect=[[{"cid": 123, "page": 1}], {"need_login_subtitle": True, "subtitle": {"subtitles": []}}],
+        ):
+            probe = _bilibili_subtitle_probe(object(), "https://www.bilibili.com/video/BV1abc", {})
+        self.assertTrue(probe["need_login_subtitle"])
+        self.assertEqual(probe["cid"], 123)
 
 
 class RuntimeRouterTests(unittest.TestCase):
@@ -34,11 +73,32 @@ class RuntimeRouterTests(unittest.TestCase):
         self.assertEqual(locked.tier, ResolvedTier.B2)
         self.assertEqual(locked.error_type, "cookie_invalid")
 
-    def test_login_wall_hint(self):
-        with patch("app.services.router.extract_info", return_value={"need_login_subtitle": True}):
+    def test_login_wall_hint_from_extractor_warning(self):
+        warning_cases = [
+            "Subtitles are only available when logged in. Sign in",
+            "字幕仅登录后可用，请配置 Cookie",
+        ]
+        for warning in warning_cases:
+            with self.subTest(warning=warning):
+                with patch("app.services.router.extract_info", return_value={"_runtime_warnings": [warning]}):
+                    decision = asyncio.run(resolve_video("https://www.bilibili.com/video/BV1xx"))
+                self.assertEqual(decision.tier, ResolvedTier.A_LOCKED)
+                self.assertIn("Cookie", decision.message)
+
+    def test_bilibili_subtitle_probe_metadata_marks_locked(self):
+        info = {
+            "subtitles": {},
+            "automatic_captions": {},
+            "_subtitle_probe": {"need_login_subtitle": True, "cid": 123},
+        }
+        with patch("app.services.router.extract_info", return_value=info):
             decision = asyncio.run(resolve_video("https://www.bilibili.com/video/BV1xx"))
         self.assertEqual(decision.tier, ResolvedTier.A_LOCKED)
-        self.assertIn("Cookie", decision.message)
+
+    def test_danmaku_is_not_a_subtitle_track(self):
+        with patch("app.services.router.extract_info", return_value={"subtitles": {"danmaku": [{"ext": "xml"}]}}):
+            decision = asyncio.run(resolve_video("https://www.bilibili.com/video/BV1xx"))
+        self.assertEqual(decision.tier, ResolvedTier.B1)
 
     def test_error_classification_direct_url_and_redaction(self):
         self.assertEqual(classify_error(RuntimeError("429 Too Many Requests")), "rate_limited")
