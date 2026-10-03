@@ -43,6 +43,31 @@ class TaskResult(BaseModel):
     error: Optional[str] = None
 
 
+class PlatformInfo(BaseModel):
+    key: str
+    name: str
+    domains: list[str]
+    short_link_domains: list[str] = Field(default_factory=list)
+    has_extractor: bool
+    may_have_subtitle: bool
+    may_need_cookie: bool
+    cookie_names: list[str] = Field(default_factory=list)
+
+
+class DetectRequest(BaseModel):
+    url: str = Field(..., min_length=1, description="视频 URL 或分享文案")
+
+
+class DetectResponse(BaseModel):
+    platform: str
+    has_extractor: bool
+    may_have_subtitle: bool
+    may_need_cookie: bool
+    cookie_ready: bool
+    normalized_url: str
+    hint: str
+
+
 class VideoInfoResponse(BaseModel):
     title: str = Field(..., description="视频标题")
     duration: float = Field(..., description="视频时长（秒）")

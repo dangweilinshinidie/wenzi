@@ -326,7 +326,7 @@
       "单元自测：四类共 20 个以上平台的典型 URL 均能被 detect 正确识别，并断言 may_have_subtitle 仅对 YouTube/Bilibili 为真",
       "端到端自测：v.douyin.com、b23.tv、xhslink.com、vm.tiktok.com 四个短链均能解析到正确长链"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "task-023",

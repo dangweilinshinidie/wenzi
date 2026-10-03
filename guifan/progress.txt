@@ -545,3 +545,38 @@ At the end of each AI work session, please add a new session record at the end o
 - 已修正会话 18 的错误描述，后续不得据此误认为参考仓库目录已删除或需要再次克隆。
 
 ---
+
+### 会话 20 - 2026-10-03
+**完成任务**: task-022 - 建立平台能力提示表、URL 规范化与平台识别
+
+**实现内容**:
+- 新增 `app/services/platforms.py`：定义 `ResolvedTier`（A / A_LOCKED / B1 / B2 / C）和 `Platform` 数据类，录入 20 个平台及其域名、短链域名、extractor、字幕可能性、Cookie 可能性和关键 Cookie 名称。
+- `detect()` 使用完整 hostname 边界和长域名优先匹配；平台表只提供能力提示，没有 `strategy_for(platform)` 路由函数。`may_have_subtitle` 仅 YouTube/Bilibili 为真，含义是“可能有字幕”，不代表每个视频都有。
+- 新增 `app/services/urlnorm.py`：`clean_share_text()` 支持中文标点和 Emoji 包裹；`strip_tracking()` 移除 `utm_*`、`share_*`、`timestamp`、`share_token`，保留 `xsec_token`；已知短链用移动端 UA/Accept，HEAD 失败降级 GET，最多 5 跳并带 24 小时缓存。
+- `app/routes.py` 接入 `clean_share_text -> resolve_short_link -> strip_tracking -> detect`，每阶段写日志；短链失败保留原 URL并按 generic 降级。新增 `GET /api/platforms` 和 `POST /api/detect`，响应不包含 `resolved_tier`。
+- `app/models.py` 增加 `PlatformInfo`、`DetectRequest`、`DetectResponse`；前端输入框增加 350ms 防抖平台提示，文案使用“可能需要 Cookie”。
+- 新增 `tests/test_task022.py` 与 `tests/test_task022_routes.py`，覆盖 20+ 平台、字幕字段边界、Emoji/中文 URL、跟踪参数、短链缓存/环路/5 跳边界和 API 契约。
+- 更新 `guifan/CODEBASE_MAP.md` 记录新模块、接口、数据流和降级规则，并将 `guifan/task.json` 的 task-022 标记为 `passes: true`。
+
+**测试结果**:
+- `python -m unittest discover -s tests -v`：11 项通过。
+- `python -m compileall -q app tests run.py`：通过。
+- `git diff --check`：通过。
+- 8000 真实服务回归：`GET /` 返回 200 健康 JSON；`GET /api/platforms` 返回 20 项；`POST /api/detect` 返回平台提示、Cookie 状态和规范化 URL；`/openapi.json` 包含 `/api/platforms` 与 `/api/detect`；`/ui` 含防抖提示代码。
+- 真实短链：`v.douyin.com/iqtEmxGCGfI/` 成功解析到 `www.iesdouyin.com/share/video/...`；其余验证使用的 `b23.tv/`、`xhslink.com/`、`vm.tiktok.com/` 是无具体目标的根地址，分别未能得到可验证视频长链，未将其记录为成功。
+
+**遇到的问题**:
+- 初版 URL 正则会把 Emoji 后的中文分享文案吞进 URL；收紧为标准 URL 字符集后修复。
+- Windows 终端直接用 Python 解码中文响应时显示乱码；用 `curl` 查看 UTF-8 原始 HTTP 响应确认服务返回中文正确，代码无需改动。
+- TestClient lifespan 会初始化 FunASR 模型并产生较多模型日志，测试仍全部通过。
+- 当前环境可验证一个真实抖音短链；三个占位短链没有视频目标，无法声称完成对应真实长链解析。
+- 追加修复长链误判：只有实际短链 hostname 才参与短链失败降级，正常 `www.douyin.com` 等长链继续按平台识别。
+
+**解决方案**:
+- 增加 Emoji/自然语言边界处理和重定向环路保护。
+- 短链解析异常不阻断任务：保留清理后的原 URL、记录 warning，并返回 generic 平台提示。
+- 8000 端口服务已重启并保持运行，最终代码已通过健康检查和新接口回归。
+
+**下一步计划**: task-023 - 实现运行时判定链与字幕优先内容获取管线。
+
+**进度**: 22/26 任务完成（task-001~022）

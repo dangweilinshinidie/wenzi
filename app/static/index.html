@@ -1,0 +1,1399 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wenzi ASR 可视化工作台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-top: #f6efe2;
+      --bg-bottom: #dff3ee;
+      --ink-900: #182228;
+      --ink-700: #2f3f47;
+      --ink-500: #5f7680;
+      --line: #d4dfdc;
+      --panel: rgba(255, 255, 255, 0.78);
+      --panel-strong: #ffffff;
+      --accent: #0f8b8d;
+      --accent-soft: #caecec;
+      --warm: #e07a5f;
+      --warm-soft: #f6d9cf;
+      --ok: #2a9d8f;
+      --danger: #bb3e03;
+      --shadow: 0 20px 45px rgba(24, 34, 40, 0.12);
+      --radius-xl: 20px;
+      --radius-lg: 14px;
+      --radius-sm: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      color: var(--ink-900);
+      background:
+        radial-gradient(circle at 12% 12%, #f9d5be 0%, transparent 35%),
+        radial-gradient(circle at 88% 20%, #b9ece4 0%, transparent 32%),
+        linear-gradient(170deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+      background-attachment: fixed;
+    }
+
+    .shell {
+      width: min(1220px, 92vw);
+      margin: 2rem auto 3rem;
+      animation: rise-in 500ms ease-out both;
+    }
+
+    .hero {
+      background: linear-gradient(120deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.7));
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.85);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      padding: 1.5rem 1.7rem;
+      margin-bottom: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .title-group h1 {
+      margin: 0;
+      font-family: "ZCOOL XiaoWei", serif;
+      font-size: clamp(1.65rem, 2.8vw, 2.2rem);
+      letter-spacing: 0.03em;
+    }
+
+    .title-group p {
+      margin: 0.5rem 0 0;
+      color: var(--ink-700);
+      font-size: 0.95rem;
+    }
+
+    .server-badge {
+      border: 1px dashed var(--line);
+      border-radius: 999px;
+      padding: 0.55rem 0.95rem;
+      font-size: 0.85rem;
+      color: var(--ink-700);
+      background: rgba(255, 255, 255, 0.62);
+      white-space: nowrap;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: minmax(320px, 1fr) minmax(420px, 1.3fr);
+      gap: 1rem;
+    }
+
+    .panel {
+      background: var(--panel);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      padding: 1.1rem;
+      animation: panel-fade 450ms ease-out both;
+    }
+
+    .panel h2 {
+      margin: 0 0 0.8rem;
+      font-size: 1.03rem;
+      color: var(--ink-900);
+    }
+
+    .form-label {
+      display: block;
+      margin-bottom: 0.4rem;
+      color: var(--ink-700);
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .url-input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 0.7rem 0.75rem;
+      font-size: 0.94rem;
+      background: rgba(255, 255, 255, 0.92);
+      color: var(--ink-900);
+      transition: border-color 150ms ease, box-shadow 150ms ease;
+    }
+
+    .url-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(15, 139, 141, 0.15);
+    }
+
+    .platform-hint {
+      min-height: 1.2rem;
+      margin-top: 0.42rem;
+      color: var(--ink-500);
+      font-size: 0.82rem;
+    }
+
+    .platform-hint.warn {
+      color: #78611c;
+    }
+
+    .platform-hint.err {
+      color: var(--danger);
+    }
+
+    .inline-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.8rem;
+      color: var(--ink-700);
+      font-size: 0.9rem;
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.6rem;
+      margin-top: 0.95rem;
+    }
+
+    .cookie-actions {
+      margin-top: 0.7rem;
+    }
+
+    button {
+      border: 0;
+      border-radius: var(--radius-sm);
+      padding: 0.64rem 0.78rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+      transform: none;
+    }
+
+    .btn-main {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 10px 25px rgba(15, 139, 141, 0.3);
+    }
+
+    .btn-warm {
+      background: var(--warm);
+      color: #fff;
+      box-shadow: 0 10px 24px rgba(224, 122, 95, 0.28);
+    }
+
+    .btn-muted {
+      background: #e9efee;
+      color: var(--ink-700);
+    }
+
+    .status-grid {
+      margin-top: 1rem;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.5rem;
+    }
+
+    .progress-wrap {
+      margin-top: 0.85rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 0.56rem 0.62rem;
+      background: rgba(255, 255, 255, 0.86);
+    }
+
+    .progress-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+      font-size: 0.82rem;
+      color: var(--ink-700);
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 10px;
+      background: #dce8e5;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #2b9a96, #4dc7b8);
+      transition: width 260ms ease;
+    }
+
+    .progress-fill.failed {
+      background: linear-gradient(90deg, #c85d38, #dd8663);
+    }
+
+    .status-chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      text-align: center;
+      padding: 0.35rem 0.4rem;
+      font-size: 0.8rem;
+      color: var(--ink-500);
+      background: rgba(255, 255, 255, 0.7);
+    }
+
+    .status-chip.done {
+      border-color: #b7e3dc;
+      background: #e4f7f3;
+      color: #1f6f63;
+    }
+
+    .status-chip.active {
+      border-color: #8ed2ce;
+      background: #d6f2f0;
+      color: #0e6668;
+      font-weight: 700;
+    }
+
+    .status-chip.failed {
+      border-color: #ecc1b3;
+      background: #ffe8e2;
+      color: var(--danger);
+      font-weight: 700;
+    }
+
+    .kpi {
+      margin-top: 0.9rem;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.55rem;
+    }
+
+    .kpi .item {
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.82);
+      padding: 0.52rem 0.6rem;
+      font-size: 0.85rem;
+    }
+
+    .kpi .label {
+      color: var(--ink-500);
+      display: block;
+      margin-bottom: 0.15rem;
+    }
+
+    .video-card {
+      margin-top: 1rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 0.7rem;
+      background: rgba(255, 255, 255, 0.88);
+    }
+
+    .video-card .meta {
+      display: grid;
+      gap: 0.25rem;
+      font-size: 0.88rem;
+      color: var(--ink-700);
+    }
+
+    .cookie-card {
+      margin-top: 1rem;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 0.7rem;
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .cookie-input {
+      width: 100%;
+      min-height: 96px;
+      max-height: 180px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 0.7rem;
+      font-family: "Courier New", monospace;
+      font-size: 0.78rem;
+      line-height: 1.45;
+      background: #fdfefe;
+      color: #2f3f47;
+    }
+
+    .cookie-input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(15, 139, 141, 0.15);
+    }
+
+    .cookie-tip {
+      margin: 0.55rem 0 0;
+      font-size: 0.78rem;
+      color: var(--ink-500);
+    }
+
+    .cookie-status {
+      margin-top: 0.55rem;
+      border: 1px dashed var(--line);
+      border-radius: var(--radius-sm);
+      padding: 0.5rem 0.6rem;
+      background: rgba(255, 255, 255, 0.7);
+    }
+
+    .thumb {
+      width: 100%;
+      max-height: 210px;
+      object-fit: cover;
+      border-radius: var(--radius-sm);
+      margin-bottom: 0.55rem;
+      border: 1px solid var(--line);
+      display: none;
+    }
+
+    .section-head {
+      margin-top: 0.3rem;
+      margin-bottom: 0.6rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .section-head small {
+      color: var(--ink-500);
+      font-size: 0.78rem;
+    }
+
+    .transcript {
+      min-height: 190px;
+      max-height: 260px;
+      overflow: auto;
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 0.8rem;
+      font-size: 0.92rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      color: var(--ink-900);
+    }
+
+    .segments {
+      margin-top: 0.8rem;
+      max-height: 230px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--panel-strong);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #e8efed;
+      text-align: left;
+      padding: 0.46rem 0.5rem;
+      vertical-align: top;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #f0f7f6;
+      color: var(--ink-700);
+      font-weight: 700;
+    }
+
+    .doc-preview {
+      margin-top: 0.8rem;
+      width: 100%;
+      min-height: 120px;
+      max-height: 200px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: 0.7rem;
+      font-family: "Courier New", monospace;
+      font-size: 0.78rem;
+      background: #fcfdfd;
+      color: #334;
+    }
+
+    .logbox {
+      margin-top: 0.8rem;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.88);
+      border-radius: var(--radius-lg);
+      max-height: 200px;
+      overflow: auto;
+      padding: 0.65rem 0.75rem;
+      font-size: 0.82rem;
+    }
+
+    .logline {
+      margin: 0 0 0.38rem;
+      color: var(--ink-700);
+      line-height: 1.45;
+    }
+
+    .logline.ok {
+      color: var(--ok);
+    }
+
+    .logline.err {
+      color: var(--danger);
+    }
+
+    .mono {
+      font-family: "Courier New", monospace;
+      color: var(--ink-700);
+      font-size: 0.85rem;
+    }
+
+    .status-note {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0.22rem 0.58rem;
+      font-size: 0.76rem;
+      color: var(--ink-500);
+      background: rgba(255, 255, 255, 0.75);
+      white-space: nowrap;
+    }
+
+    .status-note.ok {
+      border-color: #9ad7cf;
+      background: #e4f7f3;
+      color: #1f6f63;
+      font-weight: 700;
+    }
+
+    .status-note.err {
+      border-color: #ecc1b3;
+      background: #ffe8e2;
+      color: var(--danger);
+      font-weight: 700;
+    }
+
+    .status-note.warn {
+      border-color: #e2d2a0;
+      background: #fbf4dd;
+      color: #78611c;
+      font-weight: 600;
+    }
+
+    @media (max-width: 980px) {
+      .board {
+        grid-template-columns: 1fr;
+      }
+
+      .hero {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+
+    @keyframes rise-in {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes panel-fade {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div class="title-group">
+        <h1>Wenzi ASR 可视化工作台</h1>
+        <p>输入视频链接，查看元信息，启动语音提取，并在完成后一键导出整理文档。</p>
+      </div>
+      <div class="server-badge">API Base: <span class="mono">/api</span> | UI: <span class="mono">/ui</span></div>
+    </header>
+
+    <section class="board">
+      <section class="panel">
+        <h2>任务控制区</h2>
+        <label class="form-label" for="videoUrl">视频 URL</label>
+        <input id="videoUrl" class="url-input" type="url" placeholder="例如：https://www.bilibili.com/video/BV..." autocomplete="off">
+        <div id="platformHint" class="platform-hint" aria-live="polite"></div>
+
+        <label class="inline-row" for="enableTimestamp">
+          <input id="enableTimestamp" type="checkbox">
+          <span>启用时间戳分段（建议开启）</span>
+        </label>
+
+        <div class="actions">
+          <button id="btnInfo" class="btn-muted" type="button">获取视频信息</button>
+          <button id="btnExtract" class="btn-main" type="button">开始提取</button>
+          <button id="btnReset" class="btn-warm" type="button">重置界面</button>
+        </div>
+
+        <div class="status-grid" id="statusGrid">
+          <div class="status-chip" data-status="pending">pending</div>
+          <div class="status-chip" data-status="downloading">downloading</div>
+          <div class="status-chip" data-status="converting">converting</div>
+          <div class="status-chip" data-status="recognizing">recognizing</div>
+          <div class="status-chip" data-status="completed">completed</div>
+          <div class="status-chip" data-status="failed">failed</div>
+        </div>
+
+        <div class="progress-wrap">
+          <div class="progress-meta">
+            <span id="progressStageText">阶段：待开始</span>
+            <strong id="progressPctText">0%</strong>
+          </div>
+          <div class="progress-track">
+            <div id="progressFill" class="progress-fill"></div>
+          </div>
+        </div>
+
+        <div class="kpi">
+          <div class="item">
+            <span class="label">任务 ID</span>
+            <span id="taskIdText">-</span>
+          </div>
+          <div class="item">
+            <span class="label">当前状态</span>
+            <span id="taskStatusText">-</span>
+          </div>
+          <div class="item">
+            <span class="label">进度描述</span>
+            <span id="taskProgressText">-</span>
+          </div>
+          <div class="item">
+            <span class="label">文本长度</span>
+            <span id="textLengthText">0 字</span>
+          </div>
+        </div>
+
+        <article class="video-card">
+          <img id="videoThumb" class="thumb" alt="thumbnail">
+          <div class="meta">
+            <strong id="videoTitle">标题：-</strong>
+            <span id="videoDuration">时长：-</span>
+            <span id="videoUploader">作者：-</span>
+            <span id="videoDesc">描述：-</span>
+          </div>
+        </article>
+
+        <article class="cookie-card">
+          <div class="section-head">
+            <h2>抖音 Cookie 配置</h2>
+            <span id="cookieStatusBadge" class="status-note warn">未检测</span>
+          </div>
+
+          <label class="form-label" for="cookieRaw">浏览器请求头 Cookie 原文</label>
+          <textarea
+            id="cookieRaw"
+            class="cookie-input"
+            placeholder="粘贴浏览器请求头中的 Cookie: ...（不是 Netscape cookie 文件）"
+          ></textarea>
+
+          <label class="form-label" for="cookieCheckUrl">检测 URL（保存后自动检测）</label>
+          <input
+            id="cookieCheckUrl"
+            class="url-input"
+            type="url"
+            value="https://v.douyin.com/iqtEmxGCGfI/"
+            placeholder="https://v.douyin.com/..."
+            autocomplete="off"
+          >
+
+          <div class="actions cookie-actions">
+            <button id="btnCookieSaveCheck" class="btn-main" type="button">保存并检测</button>
+            <button id="btnCookieCheckOnly" class="btn-muted" type="button">仅检测当前配置</button>
+            <button id="btnCookieStatus" class="btn-muted" type="button">读取配置状态</button>
+          </div>
+
+          <p class="cookie-tip">请粘贴请求头里的 <code>Cookie:</code> 原文，不要粘贴 <code># Netscape HTTP Cookie File</code> 内容。</p>
+          <div id="cookieSummary" class="cookie-status mono">Cookie 文件：-</div>
+        </article>
+
+        <div class="logbox" id="logBox" aria-live="polite"></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <h2>提取结果与文档导出</h2>
+          <small>提取完成后可导出 Markdown 文档</small>
+        </div>
+        <div class="actions">
+          <button id="btnExport" class="btn-main" type="button" disabled>一键导出整理文档</button>
+          <button id="btnRefreshTask" class="btn-muted" type="button">手动刷新任务</button>
+          <button id="btnSample" class="btn-muted" type="button">填充示例 URL</button>
+        </div>
+
+        <div class="section-head">
+          <strong>全文文本</strong>
+          <small id="timeRangeText">起止时间：-</small>
+        </div>
+        <pre id="resultText" class="transcript">尚未提取文本。</pre>
+
+        <div class="section-head">
+          <strong>分段时间戳</strong>
+          <small id="segmentHint">当前无分段数据</small>
+        </div>
+        <div class="segments">
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 86px;">开始</th>
+                <th style="width: 86px;">结束</th>
+                <th>文本</th>
+              </tr>
+            </thead>
+            <tbody id="segmentBody">
+              <tr><td colspan="3">暂无数据</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="section-head">
+          <strong>整理文档预览</strong>
+          <small>导出内容与此区域一致</small>
+        </div>
+        <textarea id="docPreview" class="doc-preview" readonly>尚未生成整理文档。</textarea>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      taskId: "",
+      lastTask: null,
+      videoInfo: null,
+      pollTimer: null,
+      isBusy: false,
+      lastStatusSeen: "",
+      cookieBusy: false,
+      detectTimer: null,
+    };
+
+    const statusOrder = ["pending", "downloading", "converting", "recognizing", "completed", "failed"];
+    const statusPercentMap = {
+      pending: 5,
+      downloading: 30,
+      converting: 55,
+      recognizing: 82,
+      completed: 100,
+      failed: 100,
+    };
+
+    const refs = {
+      videoUrl: document.getElementById("videoUrl"),
+      platformHint: document.getElementById("platformHint"),
+      enableTimestamp: document.getElementById("enableTimestamp"),
+      btnInfo: document.getElementById("btnInfo"),
+      btnExtract: document.getElementById("btnExtract"),
+      btnReset: document.getElementById("btnReset"),
+      btnExport: document.getElementById("btnExport"),
+      btnRefreshTask: document.getElementById("btnRefreshTask"),
+      btnSample: document.getElementById("btnSample"),
+      cookieRaw: document.getElementById("cookieRaw"),
+      cookieCheckUrl: document.getElementById("cookieCheckUrl"),
+      btnCookieSaveCheck: document.getElementById("btnCookieSaveCheck"),
+      btnCookieCheckOnly: document.getElementById("btnCookieCheckOnly"),
+      btnCookieStatus: document.getElementById("btnCookieStatus"),
+      cookieStatusBadge: document.getElementById("cookieStatusBadge"),
+      cookieSummary: document.getElementById("cookieSummary"),
+      taskIdText: document.getElementById("taskIdText"),
+      taskStatusText: document.getElementById("taskStatusText"),
+      taskProgressText: document.getElementById("taskProgressText"),
+      textLengthText: document.getElementById("textLengthText"),
+      videoThumb: document.getElementById("videoThumb"),
+      videoTitle: document.getElementById("videoTitle"),
+      videoDuration: document.getElementById("videoDuration"),
+      videoUploader: document.getElementById("videoUploader"),
+      videoDesc: document.getElementById("videoDesc"),
+      logBox: document.getElementById("logBox"),
+      resultText: document.getElementById("resultText"),
+      segmentBody: document.getElementById("segmentBody"),
+      segmentHint: document.getElementById("segmentHint"),
+      statusGrid: document.getElementById("statusGrid"),
+      docPreview: document.getElementById("docPreview"),
+      timeRangeText: document.getElementById("timeRangeText"),
+      progressFill: document.getElementById("progressFill"),
+      progressPctText: document.getElementById("progressPctText"),
+      progressStageText: document.getElementById("progressStageText"),
+    };
+
+    function addLog(message, kind = "info") {
+      const line = document.createElement("p");
+      line.className = `logline ${kind === "error" ? "err" : kind === "ok" ? "ok" : ""}`;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      refs.logBox.prepend(line);
+    }
+
+    function setCookieBadge(text, kind = "warn") {
+      refs.cookieStatusBadge.className = `status-note ${kind}`;
+      refs.cookieStatusBadge.textContent = text;
+    }
+
+    function setCookieBusy(busy) {
+      state.cookieBusy = busy;
+      refs.btnCookieSaveCheck.disabled = busy;
+      refs.btnCookieCheckOnly.disabled = busy;
+      refs.btnCookieStatus.disabled = busy;
+      refs.cookieRaw.disabled = busy;
+      refs.cookieCheckUrl.disabled = busy;
+    }
+
+    function renderCookieStatus(data) {
+      const existsText = data.exists ? `已存在（${data.cookie_count} 项）` : "不存在";
+      refs.cookieSummary.textContent = `Cookie 文件：${data.cookie_file} | 状态：${existsText}`;
+      if (!data.exists) {
+        setCookieBadge("未配置", "warn");
+      } else {
+        setCookieBadge("已配置", "warn");
+      }
+    }
+
+    function applyCookieCheckResult(check) {
+      if (check.ok) {
+        const titleSuffix = check.title ? ` | 标题：${check.title}` : "";
+        setCookieBadge("可用", "ok");
+        addLog(`Cookie 检测通过：${check.normalized_url || "-"}${titleSuffix}`, "ok");
+      } else {
+        setCookieBadge("不可用", "err");
+        addLog(`Cookie 检测失败：${check.message}`, "error");
+      }
+    }
+
+    function isTerminalStatus(status) {
+      return status === "completed" || status === "failed";
+    }
+
+    function setTaskBusy(busy) {
+      state.isBusy = busy;
+      refs.btnExtract.disabled = busy;
+      refs.btnInfo.disabled = busy;
+      refs.btnSample.disabled = busy;
+      refs.btnReset.disabled = busy;
+      refs.btnRefreshTask.disabled = busy;
+      refs.videoUrl.disabled = busy;
+      refs.enableTimestamp.disabled = busy;
+      if (busy) {
+        refs.btnExtract.textContent = "任务进行中";
+      } else {
+        refs.btnExtract.textContent = "开始提取";
+      }
+    }
+
+    function updateProgressUI(status) {
+      const pct = statusPercentMap[status] ?? 0;
+      refs.progressFill.style.width = `${pct}%`;
+      refs.progressPctText.textContent = `${pct}%`;
+      refs.progressStageText.textContent = `阶段：${status || "待开始"}`;
+      refs.progressFill.classList.toggle("failed", status === "failed");
+    }
+
+    function resetStatusChips() {
+      const chips = refs.statusGrid.querySelectorAll(".status-chip");
+      chips.forEach((chip) => chip.classList.remove("active", "done", "failed"));
+    }
+
+    function updateStatusChips(status) {
+      resetStatusChips();
+      const chips = refs.statusGrid.querySelectorAll(".status-chip");
+      const statusIndex = statusOrder.indexOf(status);
+      chips.forEach((chip, idx) => {
+        const chipStatus = chip.getAttribute("data-status");
+        if (status === "failed") {
+          if (chipStatus === "failed") {
+            chip.classList.add("failed");
+            return;
+          }
+          if (idx <= Math.max(0, statusIndex - 1)) {
+            chip.classList.add("done");
+          }
+          return;
+        }
+        if (idx < statusIndex) {
+          chip.classList.add("done");
+        } else if (chipStatus === status) {
+          chip.classList.add("active");
+        }
+      });
+    }
+
+    function toClock(secondsRaw) {
+      const seconds = Math.max(0, Number(secondsRaw) || 0);
+      const hour = Math.floor(seconds / 3600);
+      const minute = Math.floor((seconds % 3600) / 60);
+      const second = Math.floor(seconds % 60);
+      return [hour, minute, second].map((v) => String(v).padStart(2, "0")).join(":");
+    }
+
+    function normalizeSegmentSecond(value) {
+      const raw = Number(value);
+      if (!Number.isFinite(raw)) {
+        return 0;
+      }
+
+      const duration = Number(state.lastTask?.video_duration ?? state.videoInfo?.duration ?? 0);
+      if (duration > 0 && raw > duration * 3) {
+        return raw / 1000;
+      }
+      if (raw > 10000) {
+        return raw / 1000;
+      }
+      return raw;
+    }
+
+    function safeDuration(secondsRaw) {
+      const val = Number(secondsRaw);
+      if (!Number.isFinite(val) || val <= 0) {
+        return "-";
+      }
+      return `${toClock(val)} (${val.toFixed(1)} 秒)`;
+    }
+
+    function renderVideoInfo(info) {
+      refs.videoTitle.textContent = `标题：${info?.title || "-"}`;
+      refs.videoDuration.textContent = `时长：${safeDuration(info?.duration)}`;
+      refs.videoUploader.textContent = `作者：${info?.uploader || "-"}`;
+      refs.videoDesc.textContent = `描述：${info?.description ? info.description.slice(0, 120) : "-"}`;
+      if (info?.thumbnail) {
+        refs.videoThumb.src = info.thumbnail;
+        refs.videoThumb.style.display = "block";
+      } else {
+        refs.videoThumb.removeAttribute("src");
+        refs.videoThumb.style.display = "none";
+      }
+    }
+
+    function resetResultArea() {
+      refs.resultText.textContent = "尚未提取文本。";
+      refs.segmentBody.innerHTML = "<tr><td colspan='3'>暂无数据</td></tr>";
+      refs.segmentHint.textContent = "当前无分段数据";
+      refs.docPreview.value = "尚未生成整理文档。";
+      refs.timeRangeText.textContent = "起止时间：-";
+      refs.textLengthText.textContent = "0 字";
+      refs.btnExport.disabled = true;
+      updateProgressUI("");
+    }
+
+    function refreshTaskBaseInfo(task) {
+      refs.taskIdText.textContent = task?.task_id || "-";
+      refs.taskStatusText.textContent = task?.status || "-";
+      refs.taskProgressText.textContent = task?.progress || "-";
+      updateStatusChips(task?.status || "");
+      updateProgressUI(task?.status || "");
+    }
+
+    function renderSegments(task) {
+      const segments = Array.isArray(task?.segments) ? task.segments : [];
+      if (!segments.length) {
+        refs.segmentBody.innerHTML = "<tr><td colspan='3'>暂无分段（可能未启用时间戳）</td></tr>";
+        refs.segmentHint.textContent = "当前无分段数据";
+        refs.timeRangeText.textContent = "起止时间：-";
+        return;
+      }
+
+      let minStart = Number.POSITIVE_INFINITY;
+      let maxEnd = 0;
+      const rows = segments
+        .map((seg) => {
+          const startSec = normalizeSegmentSecond(seg.start);
+          const endSec = normalizeSegmentSecond(seg.end);
+          minStart = Math.min(minStart, startSec);
+          maxEnd = Math.max(maxEnd, endSec);
+          return `
+            <tr>
+              <td>${toClock(startSec)}</td>
+              <td>${toClock(endSec)}</td>
+              <td>${seg.text || ""}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      refs.segmentBody.innerHTML = rows;
+      refs.segmentHint.textContent = `共 ${segments.length} 段`;
+      refs.timeRangeText.textContent = `起止时间：${toClock(minStart)} - ${toClock(maxEnd)}`;
+    }
+
+    function buildDocumentMarkdown(task) {
+      const url = refs.videoUrl.value.trim();
+      const title = state.videoInfo?.title || task?.video_title || "";
+      const durationText = safeDuration(state.videoInfo?.duration || task?.video_duration);
+      const uploader = state.videoInfo?.uploader || "";
+      const description = state.videoInfo?.description || "";
+      const createdAt = task?.created_at || "";
+      const completedAt = task?.completed_at || "";
+      const transcript = task?.text || "";
+      const segments = Array.isArray(task?.segments) ? task.segments : [];
+
+      const lines = [];
+      lines.push("# 语音提取整理文档");
+      lines.push("");
+      lines.push("## 基本信息");
+      lines.push(`- 生成时间: ${new Date().toLocaleString()}`);
+      lines.push(`- 任务 ID: ${task?.task_id || "-"}`);
+      lines.push(`- 原始 URL: ${url || "-"}`);
+      lines.push(`- 视频标题: ${title || "-"}`);
+      lines.push(`- 视频时长: ${durationText}`);
+      lines.push(`- 上传者: ${uploader || "-"}`);
+      lines.push(`- 任务创建时间: ${createdAt || "-"}`);
+      lines.push(`- 任务完成时间: ${completedAt || "-"}`);
+      lines.push("");
+
+      if (description) {
+        lines.push("## 视频描述");
+        lines.push(description);
+        lines.push("");
+      }
+
+      lines.push("## 全文转写");
+      lines.push(transcript || "（空）");
+      lines.push("");
+
+      lines.push("## 分段时间戳");
+      if (!segments.length) {
+        lines.push("未启用时间戳或未返回分段数据。");
+      } else {
+        segments.forEach((seg, index) => {
+          const startSec = normalizeSegmentSecond(seg.start);
+          const endSec = normalizeSegmentSecond(seg.end);
+          lines.push(`${index + 1}. [${toClock(startSec)} - ${toClock(endSec)}] ${seg.text || ""}`);
+        });
+      }
+      lines.push("");
+
+      lines.push("## 备注");
+      lines.push("本文档由 Wenzi ASR 可视化工作台自动整理并导出。");
+      return lines.join("\n");
+    }
+
+    function renderTask(task) {
+      state.lastTask = task;
+      refreshTaskBaseInfo(task);
+      const text = task?.text || "";
+      refs.resultText.textContent = text || "提取完成，但文本为空。";
+      refs.textLengthText.textContent = `${text.length} 字`;
+
+      if (task?.video_title || task?.video_duration) {
+        renderVideoInfo({
+          title: task.video_title || state.videoInfo?.title || "",
+          duration: task.video_duration || state.videoInfo?.duration || 0,
+          thumbnail: state.videoInfo?.thumbnail || "",
+          uploader: state.videoInfo?.uploader || "",
+          description: state.videoInfo?.description || "",
+        });
+      }
+
+      renderSegments(task);
+
+      if (task?.status === "completed") {
+        const documentText = buildDocumentMarkdown(task);
+        refs.docPreview.value = documentText;
+        refs.btnExport.disabled = false;
+      }
+
+      if (task?.status === "failed") {
+        refs.btnExport.disabled = true;
+        refs.docPreview.value = `任务失败，无法导出文档。\n\n错误信息：${task.error || "未知错误"}`;
+      }
+    }
+
+    async function requestJSON(url, options = {}) {
+      const response = await fetch(url, options);
+      const bodyText = await response.text();
+
+      let body;
+      try {
+        body = bodyText ? JSON.parse(bodyText) : null;
+      } catch {
+        body = bodyText;
+      }
+
+      if (!response.ok) {
+        const detail = body && typeof body === "object" && body.detail ? body.detail : bodyText || `HTTP ${response.status}`;
+        throw new Error(detail);
+      }
+      return body;
+    }
+
+    function renderPlatformHint(data) {
+      refs.platformHint.className = "platform-hint";
+      if (!data) {
+        refs.platformHint.textContent = "";
+        return;
+      }
+      refs.platformHint.textContent = `${data.platform}：${data.hint}${data.may_need_cookie && !data.cookie_ready ? " 当前未发现对应 Cookie。" : ""}`;
+      if (data.may_need_cookie && !data.cookie_ready) {
+        refs.platformHint.classList.add("warn");
+      }
+      if (!data.has_extractor) {
+        refs.platformHint.classList.add("err");
+      }
+    }
+
+    async function detectPlatformHint() {
+      const raw = refs.videoUrl.value.trim();
+      if (!raw) {
+        renderPlatformHint(null);
+        return;
+      }
+      try {
+        const result = await requestJSON("/api/detect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: raw }),
+        });
+        if (refs.videoUrl.value.trim() === raw) {
+          renderPlatformHint(result);
+          if (result.normalized_url !== raw) {
+            refs.videoUrl.value = result.normalized_url;
+          }
+        }
+      } catch (error) {
+        if (refs.videoUrl.value.trim() === raw) {
+          refs.platformHint.className = "platform-hint err";
+          refs.platformHint.textContent = `链接识别失败：${error.message}`;
+        }
+      }
+    }
+
+    function schedulePlatformDetect() {
+      if (state.detectTimer) {
+        window.clearTimeout(state.detectTimer);
+      }
+      state.detectTimer = window.setTimeout(detectPlatformHint, 350);
+    }
+
+    function normalizeInputUrl(raw) {
+      const text = (raw || "").trim();
+      if (!text) {
+        return "";
+      }
+      const match = text.match(/https?:\/\/[^\s<>'"\u3000]+/i);
+      if (!match) {
+        return text;
+      }
+      return match[0].replace(/[，。！？；：,.!?;:）)\]}>\"']+$/g, "");
+    }
+
+    function getCookieCheckUrl() {
+      const candidate = refs.cookieCheckUrl.value.trim() || refs.videoUrl.value.trim();
+      const normalized = normalizeInputUrl(candidate);
+      if (normalized && normalized !== refs.cookieCheckUrl.value.trim()) {
+        refs.cookieCheckUrl.value = normalized;
+      }
+      return normalized;
+    }
+
+    async function fetchCookieStatus(showLog = true) {
+      setCookieBusy(true);
+      try {
+        const status = await requestJSON("/api/cookie/status");
+        renderCookieStatus(status);
+        if (showLog) {
+          if (status.exists) {
+            addLog(`Cookie 状态：已配置 ${status.cookie_count} 项`, "ok");
+          } else {
+            addLog("Cookie 状态：未配置，请先粘贴并保存。");
+          }
+        }
+      } catch (error) {
+        setCookieBadge("检测失败", "err");
+        if (showLog) {
+          addLog(`读取 Cookie 状态失败：${error.message}`, "error");
+        }
+      } finally {
+        setCookieBusy(false);
+      }
+    }
+
+    async function saveCookieAndCheck() {
+      const rawCookie = refs.cookieRaw.value.trim();
+      if (!rawCookie) {
+        addLog("请先粘贴 Cookie 原文。", "error");
+        return;
+      }
+
+      const checkUrl = getCookieCheckUrl();
+      if (!checkUrl) {
+        addLog("请输入检测 URL（抖音视频链接）。", "error");
+        return;
+      }
+
+      setCookieBusy(true);
+      try {
+        const payload = {
+          raw_cookie: rawCookie,
+          check_url: checkUrl,
+          domain: ".douyin.com",
+        };
+        const result = await requestJSON("/api/cookie/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        refs.cookieSummary.textContent = `Cookie 文件：${result.cookie_file} | 已保存 ${result.pair_count} 项`;
+        addLog(`Cookie 已保存，共 ${result.pair_count} 项。`, "ok");
+
+        if (Array.isArray(result.missing_common) && result.missing_common.length) {
+          addLog(`提示：缺少常见关键 Cookie：${result.missing_common.join(", ")}`);
+        }
+
+        if (result.check) {
+          applyCookieCheckResult(result.check);
+        } else {
+          setCookieBadge("已保存", "warn");
+        }
+      } catch (error) {
+        setCookieBadge("保存失败", "err");
+        addLog(`保存 Cookie 失败：${error.message}`, "error");
+      } finally {
+        setCookieBusy(false);
+      }
+    }
+
+    async function checkCookieOnly() {
+      const checkUrl = getCookieCheckUrl();
+      if (!checkUrl) {
+        addLog("请输入检测 URL（抖音视频链接）。", "error");
+        return;
+      }
+
+      setCookieBusy(true);
+      try {
+        const check = await requestJSON("/api/cookie/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: checkUrl }),
+        });
+        applyCookieCheckResult(check);
+      } catch (error) {
+        setCookieBadge("检测失败", "err");
+        addLog(`检测 Cookie 失败：${error.message}`, "error");
+      } finally {
+        setCookieBusy(false);
+      }
+    }
+
+    async function fetchVideoInfo() {
+      const original = refs.videoUrl.value.trim();
+      const url = normalizeInputUrl(original);
+      if (!url) {
+        addLog("请先输入视频 URL。", "error");
+        return;
+      }
+
+      if (url !== original) {
+        refs.videoUrl.value = url;
+        addLog("已自动从分享文案中提取 URL。");
+      }
+
+      refs.btnInfo.disabled = true;
+      try {
+        addLog("正在获取视频信息...");
+        const info = await requestJSON(`/api/info?url=${encodeURIComponent(url)}`);
+        state.videoInfo = info;
+        renderVideoInfo(info);
+        addLog(`视频信息已获取：${info.title || "未命名视频"}`, "ok");
+      } catch (error) {
+        addLog(`获取视频信息失败：${error.message}`, "error");
+      } finally {
+        refs.btnInfo.disabled = false;
+      }
+    }
+
+    function stopPolling() {
+      if (state.pollTimer) {
+        window.clearInterval(state.pollTimer);
+        state.pollTimer = null;
+      }
+    }
+
+    async function pollTaskOnce() {
+      if (!state.taskId) {
+        addLog("当前没有任务 ID。", "error");
+        return;
+      }
+
+      try {
+        const task = await requestJSON(`/api/task/${state.taskId}`);
+        renderTask(task);
+
+        if (task.status === "completed") {
+          stopPolling();
+          setTaskBusy(false);
+          state.lastStatusSeen = task.status;
+          addLog("任务已完成，已生成导出文档。", "ok");
+        } else if (task.status === "failed") {
+          stopPolling();
+          setTaskBusy(false);
+          state.lastStatusSeen = task.status;
+          addLog(`任务失败：${task.error || "未知错误"}`, "error");
+        } else {
+          if (task.status !== state.lastStatusSeen) {
+            addLog(`任务状态：${task.status} | ${task.progress || "-"}`);
+            state.lastStatusSeen = task.status;
+          }
+        }
+      } catch (error) {
+        stopPolling();
+        setTaskBusy(false);
+        addLog(`轮询任务失败：${error.message}`, "error");
+      }
+    }
+
+    function startPolling() {
+      stopPolling();
+      state.pollTimer = window.setInterval(pollTaskOnce, 2000);
+    }
+
+    async function startExtract() {
+      const original = refs.videoUrl.value.trim();
+      const url = normalizeInputUrl(original);
+      if (!url) {
+        addLog("请先输入视频 URL。", "error");
+        return;
+      }
+
+      if (url !== original) {
+        refs.videoUrl.value = url;
+        addLog("已自动从分享文案中提取 URL。");
+      }
+
+      if (state.isBusy) {
+        addLog(`任务 ${state.taskId || ""} 正在进行，请等待当前任务结束后再创建新任务。`, "error");
+        return;
+      }
+
+      setTaskBusy(true);
+      refs.btnExport.disabled = true;
+      stopPolling();
+      resetResultArea();
+      resetStatusChips();
+      state.lastStatusSeen = "";
+
+      try {
+        const payload = {
+          url,
+          enable_timestamp: refs.enableTimestamp.checked,
+        };
+        addLog("正在创建提取任务...");
+        const res = await requestJSON("/api/extract", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        state.taskId = res.task_id;
+        refs.taskIdText.textContent = state.taskId;
+        refs.taskStatusText.textContent = res.status || "pending";
+        updateStatusChips(res.status || "pending");
+        updateProgressUI(res.status || "pending");
+        addLog(`任务已创建：${state.taskId}`, "ok");
+        await pollTaskOnce();
+        startPolling();
+      } catch (error) {
+        setTaskBusy(false);
+        addLog(`创建任务失败：${error.message}`, "error");
+      }
+    }
+
+    function exportDocument() {
+      if (!state.lastTask || state.lastTask.status !== "completed") {
+        addLog("任务尚未完成，无法导出。", "error");
+        return;
+      }
+      const markdown = refs.docPreview.value || buildDocumentMarkdown(state.lastTask);
+      const title = (state.videoInfo?.title || state.lastTask.video_title || "wenzi_asr").replace(/[\\/:*?\"<>|]/g, "_").slice(0, 48);
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const fileName = `${title}_${stamp}.md`;
+
+      const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(link.href);
+      addLog(`文档已导出：${fileName}`, "ok");
+    }
+
+    function resetAll() {
+      stopPolling();
+      state.taskId = "";
+      state.lastTask = null;
+      state.videoInfo = null;
+      state.lastStatusSeen = "";
+      refs.taskIdText.textContent = "-";
+      refs.taskStatusText.textContent = "-";
+      refs.taskProgressText.textContent = "-";
+      setTaskBusy(false);
+      setCookieBusy(false);
+      renderVideoInfo(null);
+      resetResultArea();
+      resetStatusChips();
+      addLog("界面状态已重置。");
+    }
+
+    refs.videoUrl.addEventListener("input", schedulePlatformDetect);
+    refs.btnInfo.addEventListener("click", fetchVideoInfo);
+    refs.btnExtract.addEventListener("click", startExtract);
+    refs.btnReset.addEventListener("click", resetAll);
+    refs.btnExport.addEventListener("click", exportDocument);
+    refs.btnRefreshTask.addEventListener("click", pollTaskOnce);
+    refs.btnCookieSaveCheck.addEventListener("click", saveCookieAndCheck);
+    refs.btnCookieCheckOnly.addEventListener("click", checkCookieOnly);
+    refs.btnCookieStatus.addEventListener("click", () => fetchCookieStatus(true));
+    refs.btnSample.addEventListener("click", () => {
+      refs.videoUrl.value = "https://www.bilibili.com/video/BV1Lg411n7ZP";
+      schedulePlatformDetect();
+      addLog("已填充示例 URL，可直接点击“开始提取”。");
+    });
+
+    window.addEventListener("beforeunload", stopPolling);
+    resetAll();
+    fetchCookieStatus(false);
+  </script>
+</body>
+</html>

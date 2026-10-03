@@ -18,6 +18,10 @@ Wenzi 是一个 FastAPI 视频/音频转文字服务。当前主链路由 yt-dlp
 | `app/routes.py` | API 端点、输入 URL 清理、Cookie 单文件接口、后台任务编排 | `_normalize_input_url`, `_parse_cookie_pairs`, `_write_netscape_cookie_file`, `_resolve_cookie_file_path`, `_persist_cookie_file_path`, `_process_task` | 调用 task manager、downloader、audio、ASR |
 | `app/services/downloader.py` | yt-dlp 元信息提取和音频下载，含 Bilibili playurl 兜底 | `_base_ydl_options`, `_extract_info_sync`, `_download_audio_sync`, `_bilibili_stream`, `extract_info`, `download_audio` | 被 routes 调用；同步工作提交到 `ThreadPoolExecutor(max_workers=3)`；按 URL 选择 Cookie 和 Referer |
 | `app/services/cookies.py` | 多平台 Cookie Vault、解析、原子合并、健康元数据、浏览器导入 | `CookieVault`, `parse_cookie_input`, `infer_domain`, `normalize_domain`, `browser_cookies` | 被 routes 和 downloader 调用；源文件按 domain 隔离 |
+| `app/services/platforms.py` | 平台能力提示表、最长域名优先识别 | `Platform`, `ResolvedTier`, `detect`, `all_platforms`, `unsupported_hint` | 被 routes 和 urlnorm 调用；只提供提示，不决定任务路由 |
+| `app/services/urlnorm.py` | 分享文案提取、短链解析、跟踪参数清理与缓存 | `clean_share_text`, `resolve_short_link`, `strip_tracking` | 被 routes 调用；解析失败时保留原 URL |
+| `tests/test_task022.py` | 平台识别与 URL 规范化单元测试 | 平台、清洗、缓存、重定向边界测试 | 不访问真实平台 |
+| `tests/test_task022_routes.py` | task-022 API 契约测试 | `/api/platforms`、`/api/detect` | TestClient + mock，不触发下载 |
 | `app/services/audio.py` | ffmpeg 音频规格转换 | `convert_to_16k_wav` | 被 `_process_task` 调用；异步子进程执行 ffmpeg |
 | `app/services/asr.py` | FunASR 模型单例与识别 | `load_model`, `_recognize_sync`, `recognize` | 启动时预加载，任务中调用；线程池 `max_workers=2` |
 | `app/static/index.html` | 单页工作台：视频信息、任务轮询、分段展示、Markdown 导出、抖音 Cookie 配置 | `fetchVideoInfo`, `startExtract`, `pollTaskOnce`, `buildDocumentMarkdown`, `exportDocument`, `saveCookieAndCheck` | 调用 `/api/info`、`/api/extract`、`/api/task/{id}`、`/api/cookie/*` |
@@ -34,7 +38,9 @@ Wenzi 是一个 FastAPI 视频/音频转文字服务。当前主链路由 yt-dlp
 
 | 方法 | 路径 | 请求 | 成功响应 / 作用 | 错误行为 |
 |---|---|---|---|---|
-| `POST` | `/api/extract` | `ExtractRequest {url, enable_timestamp}` | `ExtractResponse {task_id,status,message}`；创建后台 asyncio task | URL 不是 http(s) 返回 422 |
+| `POST` | `/api/extract` | `ExtractRequest {url, enable_timestamp}` | `ExtractResponse {task_id,status,message}`；清洗并规范化 URL 后创建后台 asyncio task | URL 不是 http(s) 返回 422 |
+| `GET` | `/api/platforms` | 无 | 平台能力提示列表 | 不包含 `resolved_tier` |
+| `POST` | `/api/detect` | `DetectRequest {url}` | `DetectResponse {platform,has_extractor,may_have_subtitle,may_need_cookie,cookie_ready,normalized_url,hint}` | 不探测具体视频、不返回 `resolved_tier` |
 | `GET` | `/api/task/{task_id}` | 路径参数 | `TaskResult` | 任务不存在 404 |
 | `GET` | `/api/info?url=...` | URL 查询参数 | `VideoInfoResponse {title,duration,thumbnail,uploader,description}` | URL 格式错误 422；提取失败 400 |
 | `GET` | `/api/cookie/status` | 无 | `CookieStatusResponse {cookie_file,exists,line_count,cookie_count}`，不返回 Cookie 值 | 读取文件错误目前未专门映射 |
@@ -45,7 +51,11 @@ Wenzi 是一个 FastAPI 视频/音频转文字服务。当前主链路由 yt-dlp
 
 ```text
 POST /api/extract
-  -> 清理分享文案中的 URL，校验 http(s)
+  -> clean_share_text 提取 URL
+  -> resolve_short_link（最多 5 跳，失败保留原 URL）
+  -> strip_tracking（保留 xsec_token）
+  -> platforms.detect 并记录平台提示
+  -> 校验 http(s)
   -> TaskManager.create_task(): pending
   -> asyncio.create_task(_process_task)
       downloading: download_audio(url, task_dir, task_id)
@@ -58,6 +68,14 @@ POST /api/extract
 
 GET /api/task/{id} 从当前进程 TaskManager 查询任务。
 ```
+
+## task-022 平台提示与 URL 规范化
+
+平台能力表覆盖 YouTube、Bilibili、西瓜视频、腾讯视频、优酷、爱奇艺、微博、Facebook、Apple Podcasts、SoundCloud、喜马拉雅、网易云音乐播客、抖音、小红书、Instagram、X/Twitter、TikTok、快手、微信视频号和小宇宙。只有 YouTube 与 Bilibili 的 `may_have_subtitle` 为 true，意为平台可能提供字幕，并不代表每条视频都有。
+
+`detect(url)` 使用完整 hostname 边界匹配并按域名长度降序。`ResolvedTier` 是运行时档位枚举；平台表和检测 API 不按平台静态字段选择档位。
+
+URL 链路为分享文案提取、已知短链 HEAD（失败时 GET 手动跟随，最多 5 跳）、跟踪参数清理、平台识别。短链缓存 24 小时；异常保留原 URL并记录 warning。参数清理移除 `utm_*`、`share_*`、`timestamp`、`share_token`，保留小红书 `xsec_token`。
 
 ## 4. 任务状态机
 

@@ -17,7 +17,10 @@ from app.models import (
     CookieDomainResponse,
     CookieStatusResponse,
     CookieSyncRequest,
+    PlatformInfo,
     CookieSyncResponse,
+    DetectRequest,
+    DetectResponse,
     ExtractRequest,
     ExtractResponse,
     TaskResult,
@@ -28,6 +31,8 @@ from app.services.asr import recognize
 from app.services.audio import convert_to_16k_wav
 from app.services.cookies import browser_cookies, cookie_vault, infer_domain, normalize_domain
 from app.services.downloader import download_audio, extract_info
+from app.services.platforms import all_platforms, detect, unsupported_hint
+from app.services.urlnorm import clean_share_text, is_short_link, resolve_short_link, strip_tracking
 from app.task_manager import task_manager
 
 logger = logging.getLogger(__name__)
@@ -120,11 +125,34 @@ async def _check_cookie(url: str) -> CookieCheckResponse:
 
 
 @router.post("/extract", response_model=ExtractResponse)
-async def create_extract_task(request: ExtractRequest) -> ExtractResponse:
-    normalized_url = _normalize_input_url(request.url)
-    if not normalized_url.startswith(("http://", "https://")):
+async def _normalize_task_url(raw_url: str) -> tuple[str, str]:
+    cleaned = clean_share_text(raw_url)
+    logger.info("URL normalization clean_share_text: %s -> %s", raw_url, cleaned)
+    if not cleaned.startswith(("http://", "https://")):
         raise HTTPException(status_code=422, detail="Invalid URL format")
 
+    resolved = cleaned
+    resolution_failed = False
+    try:
+        resolved = await resolve_short_link(cleaned)
+        resolution_failed = resolved == cleaned and is_short_link(cleaned)
+        logger.info("URL normalization resolve_short_link: %s -> %s", cleaned, resolved)
+        if resolution_failed:
+            logger.warning("URL short-link resolution returned the original short URL: %s", cleaned)
+    except Exception as exc:
+        resolution_failed = True
+        logger.warning("URL short-link resolution failed for %s: %s", cleaned, exc)
+
+    normalized = strip_tracking(resolved)
+    platform = detect(normalized)
+    platform_key = "generic" if resolution_failed else platform.key
+    logger.info("URL normalization strip_tracking: %s -> %s", resolved, normalized)
+    logger.info("URL normalization detect: %s -> %s", normalized, platform_key)
+    return normalized, platform_key
+
+
+async def create_extract_task(request: ExtractRequest) -> ExtractResponse:
+    normalized_url, _ = await _normalize_task_url(request.url)
     task_id = await task_manager.create_task()
     asyncio.create_task(
         _process_task(task_id, normalized_url, request.enable_timestamp),
@@ -134,6 +162,50 @@ async def create_extract_task(request: ExtractRequest) -> ExtractResponse:
         task_id=task_id,
         status=TaskStatus.PENDING,
         message="Task created.",
+    )
+
+
+@router.get("/platforms", response_model=list[PlatformInfo])
+async def list_platforms() -> list[PlatformInfo]:
+    return [
+        PlatformInfo(
+            key=platform.key,
+            name=platform.name,
+            domains=list(platform.domains),
+            short_link_domains=list(platform.short_link_domains),
+            has_extractor=platform.has_extractor,
+            may_have_subtitle=platform.may_have_subtitle,
+            may_need_cookie=platform.may_need_cookie,
+            cookie_names=list(platform.cookie_names),
+        )
+        for platform in all_platforms()
+    ]
+
+
+def _cookie_ready_for_url(url: str, platform) -> bool:
+    if not platform.may_need_cookie:
+        return True
+    try:
+        if cookie_vault._source_path(infer_domain(url)).is_file():
+            return True
+    except ValueError:
+        pass
+    legacy = Path(settings.YTDLP_COOKIE_FILE).expanduser() if settings.YTDLP_COOKIE_FILE else None
+    return bool(legacy and legacy.is_file())
+
+
+@router.post("/detect", response_model=DetectResponse)
+async def detect_platform(request: DetectRequest) -> DetectResponse:
+    normalized_url, platform_key = await _normalize_task_url(request.url)
+    platform = detect(normalized_url) if platform_key != "generic" else detect("")
+    return DetectResponse(
+        platform=platform_key,
+        has_extractor=platform.has_extractor,
+        may_have_subtitle=platform.may_have_subtitle,
+        may_need_cookie=platform.may_need_cookie,
+        cookie_ready=_cookie_ready_for_url(normalized_url, platform),
+        normalized_url=normalized_url,
+        hint=unsupported_hint(platform),
     )
 
 
