@@ -31,8 +31,12 @@ class Settings(BaseSettings):
     YTDLP_PROXY_DIRECT_DOMAINS: str = ""
     MIN_FREE_SPACE_MB: int = 100
 
-    # 最大任务数
+    # 最大任务数同时作为队列容量
     MAX_TASKS: int = 100
+    BATCH_MAX_ITEMS: int = 20
+    CACHE_TTL_DAYS: int = 30
+    DOWNLOAD_WORKERS: int = 3
+    ASR_WORKERS: int = 2
 
     # Cookie Vault 目录及兼容旧配置
     YTDLP_COOKIE_DIR: str = "./data/cookies"

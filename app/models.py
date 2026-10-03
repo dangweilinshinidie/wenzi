@@ -44,6 +44,7 @@ class TaskResult(BaseModel):
     status: TaskStatus = TaskStatus.PENDING
     progress: str = ""
     created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     video_title: Optional[str] = None
     video_duration: Optional[float] = None
@@ -57,6 +58,9 @@ class TaskResult(BaseModel):
     normalized_url: Optional[str] = None
     language: Optional[str] = None
     subtitle_lang: Optional[str] = None
+    file_path: Optional[str] = None
+    cached: bool = False
+    cancelled: bool = False
 
 
 class PlatformInfo(BaseModel):
@@ -144,3 +148,69 @@ class CookieSyncResponse(BaseModel):
     ok: bool
     message: str
     domains: list[CookieDomainResponse] = Field(default_factory=list)
+
+
+class BatchExtractRequest(BaseModel):
+    urls: list[str] = Field(default_factory=list)
+    text: Optional[str] = None
+    enable_timestamp: bool = False
+    fallback_asr: bool = False
+    force_asr: bool = False
+    force: bool = False
+
+
+class BatchExtractResponse(BaseModel):
+    batch_id: str
+    task_ids: list[str]
+    cached: list[bool] = Field(default_factory=list)
+
+
+class BatchStatus(BaseModel):
+    batch_id: str
+    total: int
+    succeeded: int
+    failed: int
+    in_progress: int
+    queued: int
+    tasks: list[TaskResult]
+
+
+class HistoryItem(BaseModel):
+    task_id: str
+    status: TaskStatus
+    platform: Optional[str] = None
+    title: Optional[str] = None
+    duration: Optional[float] = None
+    source: Optional[TranscriptSource] = None
+    language: Optional[str] = None
+    text_preview: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    file_path: Optional[str] = None
+
+
+class HistoryPage(BaseModel):
+    items: list[HistoryItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class PlatformStat(BaseModel):
+    platform: str
+    count: int
+
+
+class StatsResponse(BaseModel):
+    total: int
+    failed: int
+    subtitle_count: int
+    failure_rate: float
+    average_duration_seconds: float
+    platforms: list[PlatformStat]
+
+
+class CacheStats(BaseModel):
+    total: int
+    valid: int
+    expired: int

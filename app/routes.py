@@ -4,7 +4,10 @@ import asyncio
 import logging
 import re
 import shutil
+import uuid
+from datetime import datetime
 from pathlib import Path
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -28,6 +31,8 @@ from app.models import (
     TaskResult,
     TaskStatus,
     VideoInfoResponse,
+    BatchExtractRequest, BatchExtractResponse, BatchStatus, HistoryItem, HistoryPage,
+    StatsResponse, PlatformStat, CacheStats,
 )
 from app.services.asr import recognize
 from app.services.audio import convert_to_16k_wav
@@ -38,11 +43,40 @@ from app.services.router import classify_error, is_direct_media_url, resolve_vid
 from app.services.subtitles import fetch_subtitles
 from app.services.urlnorm import clean_share_text, is_short_link, resolve_short_link, strip_tracking
 from app.task_manager import task_manager
+from app.services import storage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 URL_PATTERN = re.compile(r"https?://[^\s<>'\"\u3000]+", re.IGNORECASE)
+_batch_tasks: dict[str, list[str]] = {}
+_queue: asyncio.Queue[tuple[str, str, bool, bool, str, bool] | None] = asyncio.Queue()
+_workers: list[asyncio.Task] = []
+_worker_lock = asyncio.Lock()
+_inflight: dict[str, asyncio.Future[str]] = {}
+_inflight_lock = asyncio.Lock()
+_download_gate = asyncio.Semaphore(settings.DOWNLOAD_WORKERS)
+_asr_gate = asyncio.Semaphore(settings.ASR_WORKERS)
+
+
+async def _queue_worker() -> None:
+    while True:
+        item = await _queue.get()
+        if item is None:
+            _queue.task_done()
+            return
+        try:
+            await _process_task(*item)
+        finally:
+            _, queued_url, _, _, queued_platform, _ = item
+            _inflight.pop(storage.cache_key(queued_platform, queued_url), None)
+            _queue.task_done()
+
+
+async def _ensure_workers() -> None:
+    async with _worker_lock:
+        if not _workers:
+            _workers.extend(asyncio.create_task(_queue_worker(), name=f"wenzi-worker-{i}") for i in range(max(1, settings.DOWNLOAD_WORKERS)))
 
 
 def _normalize_input_url(raw: str) -> str:
@@ -154,19 +188,76 @@ async def _normalize_task_url(raw_url: str) -> tuple[str, str]:
     return normalized, platform_key
 
 
+async def _submit_one(raw_url: str, enable_timestamp: bool, fallback_asr: bool, force_asr: bool, force: bool = False) -> tuple[str, bool]:
+    normalized_url, platform_key = await _normalize_task_url(raw_url)
+    key = storage.cache_key(platform_key, normalized_url)
+    cache = storage.get_cached(key) if not force else None
+    if cache:
+        task_id = await task_manager.create_task()
+        await task_manager.update_task(task_id, status=TaskStatus.COMPLETED, progress="缓存命中。", video_title=cache.video_title,
+                                       video_duration=cache.video_duration, text=cache.text, segments=cache.segments,
+                                       resolved_tier=cache.resolved_tier, source=cache.source, platform=cache.platform or platform_key,
+                                       normalized_url=cache.normalized_url, language=cache.language, subtitle_lang=cache.subtitle_lang,
+                                       cached=True)
+        return task_id, True
+    async with _inflight_lock:
+        existing = _inflight.get(key)
+        if existing and not force:
+            return await existing, False
+        future = asyncio.get_running_loop().create_future()
+        _inflight[key] = future
+    task_id = await task_manager.create_task()
+    await task_manager.update_task(task_id, normalized_url=normalized_url, platform=platform_key)
+    await _ensure_workers()
+    await _queue.put((task_id, normalized_url, enable_timestamp, fallback_asr, platform_key, force_asr))
+    if not future.done():
+        future.set_result(task_id)
+    return task_id, False
+
+
 @router.post("/extract", response_model=ExtractResponse)
 async def create_extract_task(request: ExtractRequest) -> ExtractResponse:
-    normalized_url, platform_key = await _normalize_task_url(request.url)
-    task_id = await task_manager.create_task()
-    asyncio.create_task(
-        _process_task(task_id, normalized_url, request.enable_timestamp, request.fallback_asr, platform_key, request.force_asr),
-        name=f"extract-{task_id}",
-    )
-    return ExtractResponse(
-        task_id=task_id,
-        status=TaskStatus.PENDING,
-        message="Task created.",
-    )
+    task_id, cached = await _submit_one(request.url, request.enable_timestamp, request.fallback_asr, request.force_asr)
+    return ExtractResponse(task_id=task_id, status=TaskStatus.COMPLETED if cached else TaskStatus.PENDING,
+                           message="Cache hit." if cached else "Task queued.")
+
+
+@router.post("/extract/batch", response_model=BatchExtractResponse)
+async def create_batch(request: BatchExtractRequest) -> BatchExtractResponse:
+    urls = [item.strip() for item in request.urls if item and item.strip()]
+    if request.text:
+        urls.extend(match.group(0).rstrip("，。！？；：,.!?;:）)]}\"'") for match in URL_PATTERN.finditer(request.text))
+    urls = list(dict.fromkeys(urls))
+    if not urls:
+        raise HTTPException(status_code=422, detail="请至少提供一个 URL")
+    if len(urls) > settings.BATCH_MAX_ITEMS:
+        raise HTTPException(status_code=422, detail=f"批量上限为 {settings.BATCH_MAX_ITEMS} 条 URL")
+    batch_id, task_ids = uuid.uuid4().hex[:12], []
+    for url in urls:
+        try:
+            task_id, _ = await _submit_one(url, request.enable_timestamp, request.fallback_asr, request.force_asr, request.force)
+        except Exception as exc:
+            task_id = await task_manager.create_task()
+            await task_manager.update_task(task_id, status=TaskStatus.FAILED, error=str(exc), error_type="parse_failed", completed_at=datetime.now())
+        task_ids.append(task_id)
+    _batch_tasks[batch_id] = task_ids
+    return BatchExtractResponse(batch_id=batch_id, task_ids=task_ids)
+
+
+@router.get("/batch/{batch_id}", response_model=BatchStatus)
+async def get_batch(batch_id: str) -> BatchStatus:
+    ids = _batch_tasks.get(batch_id)
+    if ids is None:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    tasks = []
+    for task_id in ids:
+        task = await task_manager.get_task(task_id)
+        if task is not None:
+            tasks.append(task)
+    return BatchStatus(batch_id=batch_id, total=len(ids), succeeded=sum(t.status == TaskStatus.COMPLETED for t in tasks),
+                       failed=sum(t.status == TaskStatus.FAILED for t in tasks),
+                       in_progress=sum(t.status not in (TaskStatus.PENDING, TaskStatus.COMPLETED, TaskStatus.FAILED) for t in tasks),
+                       queued=sum(t.status == TaskStatus.PENDING for t in tasks), tasks=tasks)
 
 
 @router.get("/platforms", response_model=list[PlatformInfo])
@@ -217,8 +308,90 @@ async def detect_platform(request: DetectRequest) -> DetectResponse:
 async def get_task_result(task_id: str) -> TaskResult:
     task = await task_manager.get_task(task_id)
     if task is None:
+        task = storage.get_task(task_id)
+    if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+@router.delete("/task/{task_id}")
+async def cancel_task(task_id: str) -> dict[str, bool]:
+    task = await task_manager.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+        return {"cancelled": False}
+    await task_manager.update_task(task_id, cancelled=True, status=TaskStatus.FAILED, progress="任务已取消。", error="任务已取消")
+    return {"cancelled": True}
+
+
+@router.get("/task/{task_id}/export")
+async def export_task(task_id: str, format: str = Query("md", pattern="^(md|txt|srt|json)$")) -> Response:
+    task = await get_task_result(task_id)
+    if format == "srt":
+        if not task.segments:
+            raise HTTPException(status_code=409, detail="该任务没有时间戳，请开启时间戳后重新识别")
+        def stamp(value: float) -> str:
+            ms = round(value * 1000)
+            h, rem = divmod(ms, 3_600_000); m, rem = divmod(rem, 60_000); s, ms = divmod(rem, 1000)
+            return f"{h:02}:{m:02}:{s:02},{ms:03}"
+        body = "\n\n".join(f"{i}\n{stamp(seg.start)} --> {stamp(seg.end)}\n{seg.text}" for i, seg in enumerate(task.segments, 1))
+        media_type = "application/x-subrip; charset=utf-8"
+    elif format == "txt":
+        body, media_type = task.text or "", "text/plain; charset=utf-8"
+    elif format == "json":
+        body, media_type = task.model_dump_json(indent=2), "application/json; charset=utf-8"
+    else:
+        body = Path(task.file_path).read_text(encoding="utf-8") if task.file_path and Path(task.file_path).is_file() else f"# {task.video_title or task.task_id}\n\n{task.text or ''}\n"
+        media_type = "text/markdown; charset=utf-8"
+    filename = f"{task.task_id}.{format}"
+    return Response(content=body, media_type=media_type, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.get("/history", response_model=HistoryPage)
+async def history(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), platform: str | None = None, q: str | None = None) -> HistoryPage:
+    tasks, total = storage.list_tasks(limit, offset, platform, q)
+    items = [HistoryItem(task_id=t.task_id, status=t.status, platform=t.platform, title=t.video_title, duration=t.video_duration,
+                         source=t.source, language=t.language, text_preview=(t.text or "")[:200], created_at=t.created_at,
+                         completed_at=t.completed_at, file_path=t.file_path) for t in tasks]
+    return HistoryPage(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.delete("/history/{task_id}")
+async def delete_history(task_id: str) -> dict[str, bool]:
+    if not storage.delete_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+    async with task_manager._lock:
+        task_manager._tasks.pop(task_id, None)
+    return {"deleted": True}
+
+
+@router.get("/stats", response_model=StatsResponse)
+async def stats() -> StatsResponse:
+    with storage._connect() as conn:
+        rows = conn.execute("SELECT platform, COUNT(*) count FROM tasks GROUP BY platform").fetchall()
+        totals = conn.execute("SELECT COUNT(*) total, SUM(status='failed') failed, SUM(source='subtitle') subtitles, AVG(CASE WHEN completed_at IS NOT NULL THEN (julianday(completed_at)-julianday(created_at))*86400 END) avg_duration FROM tasks").fetchone()
+    total = totals["total"] or 0
+    failed = totals["failed"] or 0
+    return StatsResponse(total=total, failed=failed, subtitle_count=totals["subtitles"] or 0,
+                         failure_rate=failed / total if total else 0, average_duration_seconds=totals["avg_duration"] or 0,
+                         platforms=[PlatformStat(platform=r["platform"] or "generic", count=r["count"]) for r in rows])
+
+
+@router.get("/queue")
+async def queue_status() -> dict[str, int]:
+    return {**task_manager.queue_stats(), "queue_size": _queue.qsize(), "running_workers": len(_workers)}
+
+
+@router.get("/cache/stats", response_model=CacheStats)
+async def get_cache_stats() -> CacheStats:
+    total, valid, expired = storage.cache_stats()
+    return CacheStats(total=total, valid=valid, expired=expired)
+
+
+@router.delete("/cache")
+async def delete_cache() -> dict[str, int]:
+    return {"deleted": storage.clear_cache()}
 
 
 @router.get("/info", response_model=VideoInfoResponse)
@@ -367,6 +540,9 @@ async def _process_task(
     task_tmp_dir.mkdir(parents=True, exist_ok=True)
 
     async def run_pipeline() -> None:
+        current = await task_manager.get_task(task_id)
+        if current and current.cancelled:
+            return
         platform = detect(url)
         await task_manager.update_task(task_id, platform=platform_key or platform.key, normalized_url=url)
         decision = await resolve_video(url)
@@ -419,10 +595,14 @@ async def _process_task(
                 raise RuntimeError("磁盘空间不足，请清理临时文件后重试。")
         except OSError:
             pass
+        current = await task_manager.get_task(task_id)
+        if current and current.cancelled:
+            return
         await task_manager.update_task(task_id, status=TaskStatus.DOWNLOADING, progress="正在下载媒体。")
         for attempt in range(3):
             try:
-                audio_path, video_info = await download_audio(url, str(task_tmp_dir), task_id, decision.info)
+                async with _download_gate:
+                    audio_path, video_info = await download_audio(url, str(task_tmp_dir), task_id, decision.info)
                 break
             except Exception as exc:
                 error_type = classify_error(exc)
@@ -430,11 +610,18 @@ async def _process_task(
                     raise
                 await asyncio.sleep(2 ** (attempt + 1))
         await task_manager.update_task(task_id, video_title=video_info.get("title"), video_duration=video_info.get("duration"))
+        current = await task_manager.get_task(task_id)
+        if current and current.cancelled:
+            return
         converted_audio_path = task_tmp_dir / f"{task_id}_16k.wav"
         await task_manager.update_task(task_id, status=TaskStatus.CONVERTING, progress="正在转换音频。")
         wav_path = await convert_to_16k_wav(audio_path, str(converted_audio_path))
+        current = await task_manager.get_task(task_id)
+        if current and current.cancelled:
+            return
         await task_manager.update_task(task_id, status=TaskStatus.RECOGNIZING, progress="正在识别语音。")
-        text, segments = await recognize(wav_path, enable_timestamp=enable_timestamp)
+        async with _asr_gate:
+            text, segments = await recognize(wav_path, enable_timestamp=enable_timestamp)
         await task_manager.update_task(
             task_id, status=TaskStatus.COMPLETED, progress="转写完成。", text=text,
             segments=segments if enable_timestamp else None, source=TranscriptSource.DIRECT if direct else TranscriptSource.ASR,
