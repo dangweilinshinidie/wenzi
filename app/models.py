@@ -18,6 +18,7 @@ class ExtractRequest(BaseModel):
     url: str = Field(..., min_length=1, description="视频 URL")
     enable_timestamp: bool = Field(False, description="是否返回时间戳")
     fallback_asr: bool = Field(False, description="字幕受登录限制时是否主动降级为 ASR")
+    force_asr: bool = Field(False, description="跳过字幕快路径，强制使用 ASR")
 
 
 class ExtractResponse(BaseModel):

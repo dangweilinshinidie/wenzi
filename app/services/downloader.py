@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -78,6 +79,13 @@ def _base_ydl_options(url: str = "") -> dict[str, Any]:
         "noplaylist": True,
         "socket_timeout": settings.DOWNLOAD_TIMEOUT,
     }
+
+    # yt-dlp's current YouTube extractor requires a JS runtime. Prefer Node
+    # because it is already supported by the bundled extractor, then Bun.
+    if shutil.which("node"):
+        opts["js_runtimes"] = {"node": {}}
+    elif shutil.which("bun"):
+        opts["js_runtimes"] = {"bun": {}}
 
     ffmpeg_path = Path(settings.FFMPEG_PATH)
     if ffmpeg_path.exists():
@@ -341,7 +349,15 @@ def _download_audio_sync(
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             if prefetched_info and prefetched_info.get("formats"):
-                info = ydl.process_ie_result(prefetched_info, download=True)
+                try:
+                    # Probe formats contain signed CDN URLs. Reuse them first,
+                    # but refresh from the original URL if a signature expired.
+                    info = ydl.process_ie_result(prefetched_info, download=True)
+                except DownloadError as exc:
+                    if not any(token in str(exc).lower() for token in ("403", "410", "expired")):
+                        raise
+                    logger.info("Prefetched media URL expired; refreshing formats for %s", url)
+                    info = ydl.extract_info(url, download=True)
             else:
                 info = ydl.extract_info(url, download=True)
         info = _pick_video_entry(info)

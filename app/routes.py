@@ -159,7 +159,7 @@ async def create_extract_task(request: ExtractRequest) -> ExtractResponse:
     normalized_url, platform_key = await _normalize_task_url(request.url)
     task_id = await task_manager.create_task()
     asyncio.create_task(
-        _process_task(task_id, normalized_url, request.enable_timestamp, request.fallback_asr, platform_key),
+        _process_task(task_id, normalized_url, request.enable_timestamp, request.fallback_asr, platform_key, request.force_asr),
         name=f"extract-{task_id}",
     )
     return ExtractResponse(
@@ -361,6 +361,7 @@ async def _process_task(
     enable_timestamp: bool,
     fallback_asr: bool = False,
     platform_key: str | None = None,
+    force_asr: bool = False,
 ) -> None:
     task_tmp_dir = Path(settings.TEMP_DIR) / task_id
     task_tmp_dir.mkdir(parents=True, exist_ok=True)
@@ -377,7 +378,9 @@ async def _process_task(
             video_title=(decision.info or {}).get("title"),
             video_duration=(decision.info or {}).get("duration"),
         )
-        if decision.tier == ResolvedTier.A_LOCKED and not fallback_asr:
+        if force_asr and decision.tier in {ResolvedTier.A, ResolvedTier.A_LOCKED}:
+            await task_manager.update_task(task_id, resolved_tier="B1")
+        if decision.tier == ResolvedTier.A_LOCKED and not fallback_asr and not force_asr:
             await task_manager.update_task(
                 task_id,
                 status=TaskStatus.FAILED,
@@ -393,7 +396,7 @@ async def _process_task(
         if decision.error_type:
             raise RuntimeError(decision.message)
 
-        if decision.tier == ResolvedTier.A:
+        if decision.tier == ResolvedTier.A and not force_asr:
             await task_manager.update_task(task_id, status=TaskStatus.FETCHING_SUBTITLE, progress="正在获取字幕。")
             result = await fetch_subtitles(url, decision.info or {})
             if result:
@@ -401,7 +404,7 @@ async def _process_task(
                 segments = [Segment(**entry) for entry in entries]
                 await task_manager.update_task(
                     task_id, status=TaskStatus.COMPLETED, progress="字幕提取完成。",
-                    text="\\n".join(item.text for item in segments),
+                    text="\n".join(item.text for item in segments),
                     segments=segments if enable_timestamp else None,
                     source=TranscriptSource.SUBTITLE, subtitle_lang=language, language=language,
                 )

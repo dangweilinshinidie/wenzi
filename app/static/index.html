@@ -4,9 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wenzi ASR 可视化工作台</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=ZCOOL+XiaoWei&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-top: #f6efe2;
@@ -36,7 +33,7 @@
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
       color: var(--ink-900);
       background:
         radial-gradient(circle at 12% 12%, #f9d5be 0%, transparent 35%),
@@ -67,7 +64,7 @@
 
     .title-group h1 {
       margin: 0;
-      font-family: "ZCOOL XiaoWei", serif;
+      font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
       font-size: clamp(1.65rem, 2.8vw, 2.2rem);
       letter-spacing: 0.03em;
     }
@@ -566,6 +563,10 @@
           <input id="fallbackAsr" type="checkbox">
           <span>字幕需要登录时仍使用 ASR</span>
         </label>
+        <label class="inline-row" for="forceAsr">
+          <input id="forceAsr" type="checkbox">
+          <span>强制使用 ASR（跳过字幕）</span>
+        </label>
 
         <div class="actions">
           <button id="btnInfo" class="btn-muted" type="button">获取视频信息</button>
@@ -735,6 +736,7 @@
       platformHint: document.getElementById("platformHint"),
       enableTimestamp: document.getElementById("enableTimestamp"),
       fallbackAsr: document.getElementById("fallbackAsr"),
+      forceAsr: document.getElementById("forceAsr"),
       btnInfo: document.getElementById("btnInfo"),
       btnExtract: document.getElementById("btnExtract"),
       btnReset: document.getElementById("btnReset"),
@@ -1330,6 +1332,7 @@
           url,
           enable_timestamp: refs.enableTimestamp.checked,
           fallback_asr: refs.fallbackAsr.checked,
+          force_asr: refs.forceAsr.checked,
         };
         addLog("正在创建提取任务...");
         const res = await requestJSON("/api/extract", {

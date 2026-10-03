@@ -652,3 +652,40 @@ At the end of each AI work session, please add a new session record at the end o
 **下一步计划**: 完成 task-023 剩余字幕路径与平台端到端验收后，再进入 task-024。
 
 **进度**: 22/26 任务完成；task-023 实现已存在，但端到端 A_LOCKED 验收未通过
+
+---
+
+### 会话 22 - 2026-10-03
+**完成任务**: task-023 - 运行时判定、字幕优先与下载强化
+
+**实现/修复**:
+- 基于用户提交的 `24d3410` 保留 B 站专属 `x/player/wbi/v2` 字幕权限探测：`need_login_subtitle=true` 判为 A_LOCKED；默认提示并停止，不写坏 Cookie 健康状态；显式 `fallback_asr` 才进入 ASR。
+- `.env` 使用的 `http://127.0.0.1:7897` 代理已验证能访问 YouTube；补充自动启用已安装 Node/Bun 作为 yt-dlp JavaScript runtime，当前使用 Node 22。
+- 新增 `force_asr` 请求/UI 选项，允许同一有字幕视频跳过字幕快路径，用于显式 ASR 与字幕路径对比。
+- 探测得到的媒体格式包含短期签名 CDN URL；下载遇到 403/410/expired 时重新从原 URL 获取新鲜格式，修复强制 ASR 的过期 URL 问题。
+- 修复字幕正文拼接为换行符而非字面量 `\\n`；移除工作台对外部 Google Fonts 的依赖并增加本地 favicon，浏览器不再产生字体网络失败或 favicon 404。
+- `tests/test_task023.py` 增加 force_asr 请求选项覆盖；保留 B站权限接口、登录 warning、同平台视频级 A/B1、字幕解析等测试。
+
+**验证结果**:
+- `python -m compileall -q app tests run.py` 通过。
+- `python -m unittest discover -s tests -v`：22 项通过。
+- `git diff --check` 通过；8000 `/`、`/ui`、`/docs`、`/openapi.json` 返回 200；服务重启正常。
+- Chrome DevTools 实际 UI 验证同一 YouTube 视频 `https://www.youtube.com/watch?v=ySU-N7KTLUo`：字幕路径 `resolved_tier=A`、`source=subtitle`、语言优先选择 `en`、123 个 Segment、4067 字符，任务从 `pending -> fetching_subtitle -> completed`，约 19 秒完成。
+- Chrome DevTools 对同一视频勾选“强制使用 ASR”：任务 `completed`，`resolved_tier=B1`、`source=asr`、1440 字文本、146 个时间戳片段。实际媒体下载和 ASR 均通过。
+- 同视频字幕路径耗时约 19 秒；强制 ASR 因代理媒体下载耗时数分钟，识别阶段约 14 秒。独立重复下载诊断耗时过长后停止，不影响服务任务；按用户要求不再扩大耗时测试。
+- Chrome DevTools 控制台无错误。A_LOCKED 同链接默认拒绝与显式 ASR 降级的实际验证记录见上一会话和提交 `24d3410`。
+
+**未逐项扩展的验证边界**:
+- 本次未对所有站点、所有 B2 平台及真实抖音/小红书账号 Cookie 逐一发起下载测试；保留已有隔离分支单测与已完成 B站/YouTube端到端结果，不将未测平台声称为实测通过。
+- C 档直链和 HLS 支持沿用既有实现与单测，本轮依用户要求没有再做长时间额外下载。
+- 8000 端口服务已运行新代码；开发环境要求的测试服务保持可访问。
+
+**遇到的问题及处理**:
+- 新 IP 通过 7897 后 YouTube 可提取字幕；之前出现反机器人错误时，Node runtime 缺失也是独立问题。启用 Node 后，当前代理可正常探测并下载字幕/媒体。
+- YouTube 首次强制 ASR 下载使用探测返回的旧签名 URL 得到 403；下载器现在在过期/拒绝时刷新原视频格式，第二次浏览器实际 ASR 已完成。
+- ChromeDriver / Chrome DevTools 初次配置之前不可用；本会话已连接 Chrome DevTools MCP 并完成真实 UI 操作。
+- 为节省耗时，停止了单独重复下载诊断；没有删除工作区原有临时大文件或用户数据。
+
+**下一步计划**: task-024 - 结果持久化、导出与历史记录
+
+**进度**: 23/26 任务完成（task-001~023）

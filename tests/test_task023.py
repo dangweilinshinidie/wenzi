@@ -8,6 +8,7 @@ from app.services.platforms import ResolvedTier
 from app.services.router import classify_error, is_direct_media_url, resolve_video, sanitize_url
 from app.services.downloader import _extract_info_sync
 from app.services.subtitles import _normalize_time, _parse_srt, _parse_vtt
+from app.models import ExtractRequest
 
 
 class DownloaderProbeTests(unittest.TestCase):
@@ -46,6 +47,13 @@ class DownloaderProbeTests(unittest.TestCase):
             probe = _bilibili_subtitle_probe(object(), "https://www.bilibili.com/video/BV1abc", {})
         self.assertTrue(probe["need_login_subtitle"])
         self.assertEqual(probe["cid"], 123)
+
+
+class RequestModelTests(unittest.TestCase):
+    def test_force_asr_is_explicit(self):
+        request = ExtractRequest(url="https://example.com/video", force_asr=True)
+        self.assertTrue(request.force_asr)
+        self.assertFalse(ExtractRequest(url="https://example.com/video").force_asr)
 
 
 class RuntimeRouterTests(unittest.TestCase):

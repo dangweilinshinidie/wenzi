@@ -100,7 +100,7 @@ def _select_track(info: dict[str, Any]) -> tuple[str, list[dict[str, Any]]] | No
         tracks = info.get(field) or {}
         if not isinstance(tracks, dict):
             continue
-        languages = [lang for lang, items in tracks.items() if lang.lower() != "live_chat" and items]
+        languages = [lang for lang, items in tracks.items() if lang.lower() not in {"live_chat", "danmaku"} and items]
         if not languages:
             continue
         language = next((lang for preferred in _LANGUAGE_PRIORITY for lang in languages if lang.lower() == preferred.lower()), languages[0])
