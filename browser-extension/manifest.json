@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Wenzi Local Cookie Sync",
+  "version": "1.0.0",
+  "description": "Synchronize supported platform cookies to the local Wenzi service.",
+  "permissions": ["cookies", "storage", "alarms"],
+  "host_permissions": [
+    "http://127.0.0.1:8000/*",
+    "https://*.douyin.com/*",
+    "https://*.iesdouyin.com/*",
+    "https://*.bilibili.com/*",
+    "https://*.youtube.com/*",
+    "https://*.googlevideo.com/*",
+    "https://*.xiaohongshu.com/*",
+    "https://*.instagram.com/*",
+    "https://*.facebook.com/*",
+    "https://*.tiktok.com/*",
+    "https://*.x.com/*",
+    "https://*.twitter.com/*"
+  ],
+  "background": {"service_worker": "service_worker.js"}
+}

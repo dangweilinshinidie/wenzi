@@ -441,6 +441,42 @@ async def list_cookies() -> list[CookieDomainResponse]:
     return [CookieDomainResponse(**item) for item in cookie_vault.list_domains()]
 
 
+@router.post("/cookie/browser-sync", response_model=CookieSyncResponse)
+async def sync_extension_cookies(payload: list[dict[str, object]]) -> CookieSyncResponse:
+    """Receive cookies from the local browser extension without exposing them in responses."""
+    allowed_domains = {
+        normalize_domain(domain)
+        for platform in all_platforms()
+        for domain in platform.domains
+    }
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for item in payload:
+        if not isinstance(item, dict) or not item.get("name"):
+            continue
+        try:
+            domain = normalize_domain(str(item.get("domain") or ""))
+        except ValueError:
+            continue
+        if not any(domain == allowed or domain.endswith(allowed) for allowed in allowed_domains):
+            continue
+        grouped.setdefault(domain, []).append({
+            "domain": str(item.get("domain") or domain),
+            "name": str(item["name"]),
+            "value": str(item.get("value") or ""),
+            "path": str(item.get("path") or "/"),
+            "secure": bool(item.get("secure", True)),
+            "expires": int(item.get("expirationDate") or 0),
+            "http_only": bool(item.get("httpOnly", False)),
+        })
+    for domain, entries in grouped.items():
+        cookie_vault.upsert(domain, entries, source="browser-extension")
+    return CookieSyncResponse(
+        ok=True,
+        message=f"已同步 {sum(len(items) for items in grouped.values())} 项浏览器 Cookie",
+        domains=[CookieDomainResponse(**item) for item in cookie_vault.list_domains()],
+    )
+
+
 @router.post("/cookie/config", response_model=CookieConfigResponse)
 async def configure_cookie(request: CookieConfigRequest) -> CookieConfigResponse:
     raw = request.raw_cookie.strip()

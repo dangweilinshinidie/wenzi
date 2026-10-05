@@ -803,3 +803,58 @@ At the end of each AI work session, please add a new session record at the end o
 **进度**: 26/26 任务完成（task-001~026）
 
 ---
+
+### 会话 24 - 2026-10-03
+**补充修复**: Chromium v20 Cookie 自动同步
+
+**根因**:
+- Chrome 默认 profile 的 Cookie 数据库可读取，但 781 条 Cookie 全部使用 `v20` App-Bound Encryption。
+- yt-dlp 和 `browser_cookie3` 都无法在当前 Windows 环境解密 `v20`，因此关闭 Chrome 后仍报 DPAPI 错误；不是浏览器选错或抖音 Cookie 名称配置错误。
+
+**实现内容**:
+- 新增 `browser-extension/manifest.json`、`service_worker.js` 和安装说明 `README.md`。
+- 扩展通过 Chromium 官方 `chrome.cookies` API，在浏览器保持打开并登录时监听 Cookie 变化、每五分钟同步到本机 `http://127.0.0.1:8000/api/cookie/browser-sync`。
+- 服务端只接收已知平台域名，将 Cookie 写入本地 Cookie Vault；API 响应只返回同步数量和域名，不返回 Cookie 值。
+- 下载器优先使用扩展同步到 Vault 的 Cookie 文件；未同步时才回退 yt-dlp `cookiesfrombrowser`。
+- 新增扩展同步单测，确保本地同步响应不泄漏 Cookie 值。
+
+**验证**:
+- 已检查真实 Chrome Cookie 密文前缀均为 `v20`，并确认 yt-dlp/browser_cookie3 的 DPAPI 读取限制。
+- `python -m compileall -q app tests run.py` 通过；全量单测 27 项通过。
+- 扩展按 unpacked extension 方式可在 Chrome/Edge 加载。
+
+**使用方式**:
+- 打开 `chrome://extensions` 或 `edge://extensions`，开启开发者模式，选择“加载已解压的扩展程序”，指向项目的 `browser-extension` 目录。
+- 浏览器保持登录抖音/B站即可自动同步；无需关闭浏览器、手动复制 Cookie 或暴露 Cookie 给外部服务。
+
+**进度**: task-023 完成；task-026 已完成
+
+---
+
+### 会话 25 - 2026-10-03
+**补充修复**: 浏览器打开状态下自动同步 Chrome v20 Cookie
+
+**问题确认**:
+- Chrome 默认 profile 的 Cookie 数据库可读，但全部为 `v20` App-Bound Encryption；yt-dlp 与 browser_cookie3 均无法解密，即使关闭 Chrome 也会 DPAPI 失败。
+- 因此单纯切换 Chrome/Edge、关闭浏览器或直接复制数据库都不能解决，必须使用浏览器自身的 Cookie API。
+
+**实现内容**:
+- 新增 `browser-extension/manifest.json`、`browser-extension/service_worker.js`、`browser-extension/README.md`。
+- 扩展使用 Chromium `chrome.cookies` API，浏览器保持打开并登录时自动监听变化、安装启动同步和每五分钟定时同步。
+- 新增 `POST /api/cookie/browser-sync`，只接收支持平台域名，将 Cookie 写入本地 Vault；响应不返回 Cookie 值。
+- 下载器优先使用扩展同步到 Vault 的平台 Cookie 文件，避免 v20/DPAPI；没有扩展同步 Cookie 时才回退 `cookiesfrombrowser`。
+- 修正空 `_merged.txt` 不应挡住浏览器 Cookie fallback 的优先级。
+
+**验证**:
+- `python -m compileall -q app tests run.py` 通过。
+- 全量单测 28 项通过。
+- 扩展 manifest JSON 校验通过。
+- 抖音/B站登录平台选项在没有专属 Vault Cookie 时使用 `cookiesfrombrowser=('chrome', None, None, None)`；有扩展同步文件时优先使用 `cookiefile`。
+
+**使用方式**:
+- 打开 `chrome://extensions`，开启开发者模式，选择“加载已解压的扩展程序”，指向项目 `browser-extension` 目录。
+- 保持 Chrome 登录抖音/B站并正常使用，扩展自动同步，服务网页无需关闭浏览器、无需复制 Cookie。
+
+**进度**: task-023 完成；task-026 已完成
+
+---

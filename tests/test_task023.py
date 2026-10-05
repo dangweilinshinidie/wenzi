@@ -2,20 +2,24 @@ from __future__ import annotations
 
 import asyncio
 import unittest
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from app.services.platforms import ResolvedTier
 from app.services.router import classify_error, is_direct_media_url, resolve_video, sanitize_url
-from app.services.downloader import _base_ydl_options, _extract_info_sync
+from app.services.downloader import _base_ydl_options, _download_audio_sync, _extract_info_sync
 from app.services.subtitles import _normalize_time, _parse_srt, _parse_vtt
 from app.models import ExtractRequest
+from app.routes import sync_extension_cookies
 
 
 class DownloaderProbeTests(unittest.TestCase):
     def test_login_platforms_use_browser_cookies_without_vault_file(self):
         with patch("app.services.downloader.cookie_vault.ydl_cookie_opts", return_value={}), patch(
-            "app.services.downloader.settings.YTDLP_COOKIES_FROM_BROWSER", ""
-        ), patch("app.services.downloader.settings.YTDLP_COOKIE_FILE", ""):
+            "app.services.downloader.cookie_vault._source_path", side_effect=ValueError("not a login domain")
+        ), patch("app.services.downloader.settings.YTDLP_COOKIES_FROM_BROWSER", ""), patch(
+            "app.services.downloader.settings.YTDLP_COOKIE_FILE", ""
+        ):
             opts = _base_ydl_options("https://www.douyin.com/video/123")
         self.assertEqual(opts["cookiesfrombrowser"], ("chrome", None, None, None))
         self.assertNotIn("cookiefile", opts)
@@ -55,6 +59,48 @@ class DownloaderProbeTests(unittest.TestCase):
             probe = _bilibili_subtitle_probe(object(), "https://www.bilibili.com/video/BV1abc", {})
         self.assertTrue(probe["need_login_subtitle"])
         self.assertEqual(probe["cid"], 123)
+
+    def test_audio_download_reextracts_instead_of_reusing_probe_format_paths(self):
+        stale_probe = {
+            "title": "video",
+            "formats": [{"format_id": "audio", "url": "https://cdn.invalid/audio"}],
+            "requested_formats": [{"format_id": "f100026", "filepath": "missing.f100026.m4a"}],
+        }
+        downloaded = {"title": "video", "filepath": "audio.wav", "ext": "wav"}
+        fake_ydl = MagicMock()
+        fake_ydl.__enter__.return_value = fake_ydl
+        fake_ydl.__exit__.return_value = False
+        fake_ydl.extract_info.return_value = downloaded
+
+        with patch("app.services.downloader._base_ydl_options", return_value={}), patch(
+            "app.services.downloader.yt_dlp.YoutubeDL", return_value=fake_ydl
+        ), patch("app.services.downloader._resolve_downloaded_wav", return_value=Path("audio.wav")):
+            result, _ = _download_audio_sync("https://bilibili.com/video/BV1test", ".", "task", stale_probe)
+
+        fake_ydl.extract_info.assert_called_once_with("https://bilibili.com/video/BV1test", download=True)
+        fake_ydl.process_ie_result.assert_not_called()
+        self.assertTrue(result.endswith("audio.wav"))
+
+
+class BrowserExtensionTests(unittest.TestCase):
+    def test_extension_sync_uses_local_vault_without_returning_values(self):
+        class FakeVault:
+            def __init__(self):
+                self.saved = []
+            def upsert(self, domain, entries, source):
+                self.saved.append((domain, entries, source))
+            def list_domains(self):
+                return []
+
+        fake = FakeVault()
+        with patch("app.routes.cookie_vault", fake):
+            response = asyncio.run(sync_extension_cookies([{
+                "domain": ".douyin.com", "name": "ttwid", "value": "secret",
+                "path": "/", "secure": True,
+            }]))
+        self.assertTrue(response.ok)
+        self.assertEqual(fake.saved[0][0], ".douyin.com")
+        self.assertNotIn("secret", response.message)
 
 
 class RequestModelTests(unittest.TestCase):

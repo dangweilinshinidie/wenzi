@@ -120,15 +120,25 @@ def _base_ydl_options(url: str = "") -> dict[str, Any]:
     browser_spec = (settings.YTDLP_COOKIES_FROM_BROWSER or "chrome").strip()
     browser_name, _, profile = browser_spec.partition(":")
     browser_name = browser_name.lower()
+    platform_cookie_file = False
+    if platform and platform.may_need_cookie:
+        try:
+            platform_cookie_file = cookie_vault._source_path(infer_domain(url)).is_file()
+        except ValueError:
+            pass
     use_browser_cookies = bool(
         browser_name in {"chrome", "edge", "firefox"}
         and platform
         and platform.may_need_cookie
+        and not platform_cookie_file
     )
-    if use_browser_cookies:
-        opts["cookiesfrombrowser"] = (browser_name, profile or None, None, None)
-    elif cookie_opts:
+    # Prefer cookies synced by the local browser extension. This avoids
+    # Chromium v20/App-Bound decryption and works while the browser is open.
+    if platform_cookie_file and cookie_opts:
         opts.update(cookie_opts)
+        use_browser_cookies = False
+    elif use_browser_cookies:
+        opts["cookiesfrombrowser"] = (browser_name, profile or None, None, None)
     elif settings.YTDLP_COOKIE_FILE and url:
         legacy_cookie = Path(settings.YTDLP_COOKIE_FILE).expanduser()
         try:
@@ -379,18 +389,15 @@ def _download_audio_sync(
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            if prefetched_info and prefetched_info.get("formats"):
-                try:
-                    # Probe formats contain signed CDN URLs. Reuse them first,
-                    # but refresh from the original URL if a signature expired.
-                    info = ydl.process_ie_result(prefetched_info, download=True)
-                except DownloadError as exc:
-                    if not any(token in str(exc).lower() for token in ("403", "410", "expired")):
-                        raise
-                    logger.info("Prefetched media URL expired; refreshing formats for %s", url)
-                    info = ydl.extract_info(url, download=True)
-            else:
-                info = ydl.extract_info(url, download=True)
+            # Never feed the probe result into process_ie_result(). A probe may
+            # already contain requested_formats/requested_downloads/filepath
+            # from an earlier selection, while Bilibili may have issued a new
+            # signed audio/video URL by the time the download starts. Reusing
+            # that download-state metadata makes yt-dlp's FFmpeg merger look
+            # for files that were not written (for example, f100026.m4a).
+            # Re-extracting here gives this download a fresh format selection,
+            # fresh CDN URLs, and a consistent set of local input files.
+            info = ydl.extract_info(url, download=True)
         info = _pick_video_entry(info)
         audio_file = _resolve_downloaded_wav(info, output_path, task_id)
         return str(audio_file.resolve()), _normalize_video_info(info)
