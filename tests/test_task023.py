@@ -6,12 +6,20 @@ from unittest.mock import patch
 
 from app.services.platforms import ResolvedTier
 from app.services.router import classify_error, is_direct_media_url, resolve_video, sanitize_url
-from app.services.downloader import _extract_info_sync
+from app.services.downloader import _base_ydl_options, _extract_info_sync
 from app.services.subtitles import _normalize_time, _parse_srt, _parse_vtt
 from app.models import ExtractRequest
 
 
 class DownloaderProbeTests(unittest.TestCase):
+    def test_login_platforms_use_browser_cookies_without_vault_file(self):
+        with patch("app.services.downloader.cookie_vault.ydl_cookie_opts", return_value={}), patch(
+            "app.services.downloader.settings.YTDLP_COOKIES_FROM_BROWSER", ""
+        ), patch("app.services.downloader.settings.YTDLP_COOKIE_FILE", ""):
+            opts = _base_ydl_options("https://www.douyin.com/video/123")
+        self.assertEqual(opts["cookiesfrombrowser"], ("chrome", None, None, None))
+        self.assertNotIn("cookiefile", opts)
+
     def test_probe_enables_warning_capture_and_returns_warning_metadata(self):
         warning = "Subtitles are only available when logged in. Sign in"
 

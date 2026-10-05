@@ -286,7 +286,11 @@ def _cookie_ready_for_url(url: str, platform) -> bool:
     except ValueError:
         pass
     legacy = Path(settings.YTDLP_COOKIE_FILE).expanduser() if settings.YTDLP_COOKIE_FILE else None
-    return bool(legacy and legacy.is_file())
+    if legacy and legacy.is_file():
+        return True
+    browser_spec = (settings.YTDLP_COOKIES_FROM_BROWSER or "chrome").strip()
+    browser_name = browser_spec.partition(":")[0].lower()
+    return browser_name in {"chrome", "edge", "firefox"}
 
 
 @router.post("/detect", response_model=DetectResponse)

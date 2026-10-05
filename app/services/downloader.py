@@ -43,6 +43,23 @@ class _YtDlpCaptureLogger:
 
 
 _executor = ThreadPoolExecutor(max_workers=max(1, settings.YTDLP_MAX_WORKERS))
+def _is_browser_cookie_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return any(token in message for token in (
+        "could not copy chrome cookie database",
+        "failed to decrypt with dpapi",
+        "cannot decrypt v10 cookies",
+        "cannot decrypt v11 cookies",
+    ))
+
+
+def _browser_cookie_error(exc: BaseException) -> DownloadError:
+    return DownloadError(
+        "无法自动读取 Chrome Cookie。请确认 Chrome 已登录目标平台，"
+        "关闭所有 Chrome 窗口后重试；程序会自动重新读取，不需要手动复制 Cookie。"
+    )
+
+
 _DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -92,7 +109,25 @@ def _base_ydl_options(url: str = "") -> dict[str, Any]:
         opts["ffmpeg_location"] = str(ffmpeg_path.parent)
 
     cookie_opts = cookie_vault.ydl_cookie_opts(url) if url else {}
-    if cookie_opts:
+    try:
+        from app.services.platforms import detect
+        platform = detect(url)
+    except Exception:
+        platform = None
+
+    # Browser cookies are the default for login-gated platforms. This keeps
+    # fresh session cookies in sync without requiring users to paste headers.
+    browser_spec = (settings.YTDLP_COOKIES_FROM_BROWSER or "chrome").strip()
+    browser_name, _, profile = browser_spec.partition(":")
+    browser_name = browser_name.lower()
+    use_browser_cookies = bool(
+        browser_name in {"chrome", "edge", "firefox"}
+        and platform
+        and platform.may_need_cookie
+    )
+    if use_browser_cookies:
+        opts["cookiesfrombrowser"] = (browser_name, profile or None, None, None)
+    elif cookie_opts:
         opts.update(cookie_opts)
     elif settings.YTDLP_COOKIE_FILE and url:
         legacy_cookie = Path(settings.YTDLP_COOKIE_FILE).expanduser()
@@ -118,14 +153,8 @@ def _base_ydl_options(url: str = "") -> dict[str, Any]:
     if settings.YTDLP_RATE_LIMIT > 0:
         opts["ratelimit"] = settings.YTDLP_RATE_LIMIT
 
-    browser_spec = (settings.YTDLP_COOKIES_FROM_BROWSER or "").strip()
-    if browser_spec:
-        browser_name, _, profile = browser_spec.partition(":")
-        browser_name = browser_name.lower()
-        if browser_name in {"chrome", "edge", "firefox"}:
-            opts["cookiesfrombrowser"] = (browser_name, profile or None, None, None)
-        else:
-            logger.warning("Ignoring unsupported YTDLP_COOKIES_FROM_BROWSER=%s", browser_spec)
+    if browser_spec and browser_name not in {"chrome", "edge", "firefox"}:
+        logger.warning("Ignoring unsupported YTDLP_COOKIES_FROM_BROWSER=%s", browser_spec)
 
     headers = {"User-Agent": settings.YTDLP_USER_AGENT or _DEFAULT_USER_AGENT}
     try:
@@ -147,8 +176,8 @@ def _base_ydl_options(url: str = "") -> dict[str, Any]:
     try:
         from app.services.platforms import detect
         platform = detect(url)
-        if platform.may_need_cookie and not cookie_opts:
-            logger.warning("Platform %s may require Cookie; configure it via /api/cookie/config", platform.key)
+        if platform.may_need_cookie and not cookie_opts and not use_browser_cookies:
+            logger.warning("Platform %s may require Cookie; configure it via /api/cookie/config or browser sync", platform.key)
     except Exception:
         pass
     opts["http_headers"] = headers
@@ -284,7 +313,9 @@ def _extract_info_sync(url: str) -> dict[str, Any]:
             **_normalize_video_info(info),
             "_runtime_warnings": list(capture_logger.warnings),
         }
-    except DownloadError:
+    except DownloadError as exc:
+        if _is_browser_cookie_error(exc):
+            raise _browser_cookie_error(exc) from exc
         if not _extract_bilibili_bvid(url):
             raise
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -363,7 +394,9 @@ def _download_audio_sync(
         info = _pick_video_entry(info)
         audio_file = _resolve_downloaded_wav(info, output_path, task_id)
         return str(audio_file.resolve()), _normalize_video_info(info)
-    except DownloadError:
+    except DownloadError as exc:
+        if _is_browser_cookie_error(exc):
+            raise _browser_cookie_error(exc) from exc
         if not _extract_bilibili_bvid(url):
             raise
 

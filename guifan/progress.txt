@@ -690,6 +690,36 @@ At the end of each AI work session, please add a new session record at the end o
 
 **进度**: 23/26 任务完成（task-001~023）
 
+---
+
+### 会话 23 - 2026-10-03
+**补充完成**: 自动读取 Chrome Cookie，减少手动粘贴配置
+
+**实现内容**:
+- `YTDLP_COOKIES_FROM_BROWSER` 默认改为 `chrome`，`.env.example` 同步设置为 `chrome`。
+- 对抖音、B站、YouTube、小红书、Instagram、X、TikTok 等 `may_need_cookie` 平台，yt-dlp 优先使用 `cookiesfrombrowser=('chrome', profile, None, None)`；不再同时注入 Cookie Vault 的 `cookiefile`，避免 Cookie 来源冲突和旧 Cookie 覆盖当前浏览器会话。
+- `/api/detect` 在已启用 Chrome/Edge/Firefox 自动来源时显示 Cookie 来源已就绪；手动 Cookie Vault 和兼容旧配置仍保留。
+- 将 Chrome 数据库占用、Windows DPAPI 解密失败等底层错误转换为明确中文提示：保持 Chrome 登录目标平台，关闭 Chrome 后重试，程序自动重新读取，不需要手动复制 Cookie。
+- 新增自动浏览器 Cookie 选项单测，确认登录平台使用浏览器来源且不带旧 `cookiefile`。
+
+**测试结果**:
+- `python -m compileall -q app tests run.py` 通过。
+- `python -m unittest discover -s tests -v`：26 项通过。
+- 8000 服务保持可用；选项检查确认抖音请求为 `cookiesfrombrowser=('chrome', None, None, None)`，没有 `cookiefile`。
+- 实测 Chrome 自动读取链路已被调用，但当前 Chrome 进程锁定数据库，yt-dlp 返回 `Could not copy Chrome cookie database`；代码已转成可操作提示，未读取或输出 Cookie 明文。
+
+**使用方式**:
+- 保持 Chrome 登录抖音等目标平台，服务会自动使用 Chrome Cookie。
+- 如果出现 Chrome 数据库占用提示，关闭所有 Chrome 窗口后重新提交任务；不需要复制粘贴 Cookie。
+- 如需指定 Chrome 配置文件，可设置 `YTDLP_COOKIES_FROM_BROWSER=chrome:Profile 3`；Windows DPAPI 必须使用同一 Windows 用户运行服务。
+
+**遇到的问题**:
+- 当前机器 Chrome 进程正在占用默认 profile 的 Cookie 数据库；其他 profile 在当前用户环境下触发 DPAPI 解密限制。这是 Windows/Chrome 的系统访问限制，不是抖音 Cookie 字段配置错误。
+
+**下一步计划**: task-024 - 结果持久化、导出与历史记录
+
+**进度**: 23/26 任务完成（task-001~023）
+
 ### 会话 23 - 2026-10-03
 **完成任务**:
 - task-024 - 结果持久化、落盘、导出和历史记录

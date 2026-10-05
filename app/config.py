@@ -41,8 +41,8 @@ class Settings(BaseSettings):
     # Cookie Vault 目录及兼容旧配置
     YTDLP_COOKIE_DIR: str = "./data/cookies"
     YTDLP_COOKIE_FILE: str = ""
-    # 浏览器同步来源，例如 chrome、edge 或 firefox；留空表示不自动读取浏览器
-    YTDLP_COOKIES_FROM_BROWSER: str = ""
+    # 自动读取浏览器 Cookie；支持 chrome、edge、firefox 和 browser:Profile
+    YTDLP_COOKIES_FROM_BROWSER: str = "chrome"
     # yt-dlp 代理（示例：socks5://127.0.0.1:7890 或 http://127.0.0.1:7890）
     YTDLP_PROXY: str = ""
     # 可选的现代浏览器 UA 覆盖值
