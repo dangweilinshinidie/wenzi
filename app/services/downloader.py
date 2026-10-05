@@ -221,10 +221,23 @@ def _bilibili_subtitle_probe(
         return {}
     data = _bilibili_api_json(ydl, "/x/player/wbi/v2", {"bvid": bvid, "cid": cid})
     subtitle = data.get("subtitle") if isinstance(data, dict) else {}
+    raw_tracks = subtitle.get("subtitles") or [] if isinstance(subtitle, dict) else []
+    tracks = []
+    for item in raw_tracks:
+        if not isinstance(item, dict) or not item.get("subtitle_url") or not item.get("lan"):
+            continue
+        subtitle_url = str(item["subtitle_url"])
+        if subtitle_url.startswith("//"):
+            subtitle_url = "https:" + subtitle_url
+        tracks.append({
+            "lan": str(item["lan"]),
+            "url": subtitle_url,
+        })
     return {
         "need_login_subtitle": bool(data.get("need_login_subtitle")) if isinstance(data, dict) else False,
-        "subtitle_count": len(subtitle.get("subtitles") or []) if isinstance(subtitle, dict) else 0,
+        "subtitle_count": len(tracks),
         "cid": cid,
+        "tracks": tracks,
     }
 
 
@@ -245,6 +258,11 @@ def _enrich_bilibili_subtitle_status(
         info["_subtitle_probe"] = probe
         if probe.get("need_login_subtitle"):
             info["need_login_subtitle"] = True
+        if probe.get("tracks") and not info.get("subtitles"):
+            info["subtitles"] = {
+                track["lan"]: [{"ext": "srt", "url": track["url"], "_bilibili_json": True}]
+                for track in probe["tracks"]
+            }
     return info
 
 

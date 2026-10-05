@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import logging
 import re
 import shutil
@@ -112,7 +113,36 @@ def _download_subtitle_sync(url: str, info: dict[str, Any], output_dir: str) -> 
     selected = _select_track(info)
     if not selected:
         return None
-    language, _ = selected
+    language, tracks = selected
+    # Bilibili exposes subtitle JSON through its player API rather than a
+    # downloadable VTT/SRT file. Convert that JSON to SRT locally.
+    bilibili_track = next((item for item in tracks if item.get("_bilibili_json")), None)
+    if bilibili_track:
+        options = _base_ydl_options(url)
+        headers = options.get("http_headers") or {}
+        with yt_dlp.YoutubeDL(options) as ydl:
+            response = ydl.urlopen(bilibili_track["url"])
+            payload = json.loads(response.read().decode("utf-8"))
+        body = payload.get("body") if isinstance(payload, dict) else None
+        if not isinstance(body, list):
+            return None
+        path = Path(output_dir) / "subtitle.srt"
+        lines = []
+        for index, item in enumerate(body, 1):
+            if not isinstance(item, dict):
+                continue
+            start = float(item.get("from") or 0)
+            end = float(item.get("to") or start)
+            def stamp(value: float) -> str:
+                ms = round(value * 1000)
+                hour, rem = divmod(ms, 3600000)
+                minute, rem = divmod(rem, 60000)
+                second, millis = divmod(rem, 1000)
+                return f"{hour:02d}:{minute:02d}:{second:02d},{millis:03d}"
+            lines.extend([str(index), f"{stamp(start)} --> {stamp(end)}", str(item.get("content") or ""), ""])
+        path.write_text("\n".join(lines), encoding="utf-8")
+        return language, path
+
     options = _base_ydl_options(url)
     options.update({
         "skip_download": True,

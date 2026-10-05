@@ -54,11 +54,16 @@ class DownloaderProbeTests(unittest.TestCase):
 
         with patch(
             "app.services.downloader._bilibili_api_json",
-            side_effect=[[{"cid": 123, "page": 1}], {"need_login_subtitle": True, "subtitle": {"subtitles": []}}],
+            side_effect=[
+                [{"cid": 123, "page": 1}],
+                {"need_login_subtitle": False, "subtitle": {"subtitles": [{"lan": "zh-CN", "subtitle_url": "https://subtitle.example/1.json"}]}},
+            ],
         ):
             probe = _bilibili_subtitle_probe(object(), "https://www.bilibili.com/video/BV1abc", {})
-        self.assertTrue(probe["need_login_subtitle"])
+        self.assertFalse(probe["need_login_subtitle"])
         self.assertEqual(probe["cid"], 123)
+        self.assertEqual(probe["subtitle_count"], 1)
+        self.assertEqual(probe["tracks"][0]["lan"], "zh-CN")
 
     def test_audio_download_reextracts_instead_of_reusing_probe_format_paths(self):
         stale_probe = {
@@ -121,6 +126,21 @@ class RuntimeRouterTests(unittest.TestCase):
             no_subtitle = asyncio.run(run({"title": "plain", "subtitles": {}, "automatic_captions": {}}))
         self.assertEqual(subtitle.tier, ResolvedTier.A)
         self.assertEqual(no_subtitle.tier, ResolvedTier.B1)
+
+    def test_bilibili_probe_subtitle_count_routes_to_a(self):
+        info = {
+            "subtitles": {},
+            "_subtitle_probe": {
+                "need_login_subtitle": False,
+                "subtitle_count": 1,
+                "cid": 27646364792,
+                "tracks": [{"lan": "zh-CN", "url": "https://subtitle.example/test.json"}],
+            },
+        }
+        with patch("app.services.router.extract_info", return_value=info):
+            decision = asyncio.run(resolve_video("https://www.bilibili.com/video/BV1Bo6oYaEVH"))
+        self.assertEqual(decision.tier, ResolvedTier.A)
+        self.assertEqual(decision.info["_subtitle_probe"]["subtitle_count"], 1)
 
     def test_cookie_locked_direct_and_probe_error_branches(self):
         with patch("app.services.router.extract_info") as probe:

@@ -76,6 +76,9 @@ def user_error_message(error_type: str, exc: BaseException) -> str:
 
 
 def _has_usable_subtitles(info: dict[str, Any]) -> bool:
+    probe = info.get("_subtitle_probe") or {}
+    if probe.get("subtitle_count", 0) > 0:
+        return True
     for key in ("subtitles", "automatic_captions"):
         tracks = info.get(key) or {}
         if not isinstance(tracks, dict):

@@ -186,8 +186,10 @@ def delete_task(task_id: str) -> bool:
 
 
 def cache_key(platform: str | None, normalized_url: str, video_id: str | None = None) -> str:
+    # Bump when runtime routing semantics change so stale ASR results cannot
+    # mask a newly available subtitle path.
     identity = video_id or normalized_url
-    return f"{platform or 'generic'}:{hashlib.sha256(identity.encode()).hexdigest()}"
+    return f"v3:{platform or 'generic'}:{hashlib.sha256(identity.encode()).hexdigest()}"
 
 
 def get_cached(key: str) -> TaskResult | None:

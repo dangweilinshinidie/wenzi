@@ -858,3 +858,32 @@ At the end of each AI work session, please add a new session record at the end o
 **进度**: task-023 完成；task-026 已完成
 
 ---
+
+### 会话 26 - 2026-10-03
+**修复**: B 站有字幕视频误走 B1/ASR，以及旧缓存污染分层
+
+**问题复现**:
+- 用户任务 `8a0e1521` 最终为 `resolved_tier=B1`、`source=asr`。
+- 同视频实际探测返回 `_subtitle_probe.need_login_subtitle=false`、`subtitle_count=1`，但普通 `info.subtitles` 为空。router 只检查普通字幕字典，导致误判 B1。
+- 旧结果缓存可能保留之前的 B1/ASR 结果，让新请求看起来像忽略了 UI 复选框。
+
+**修复内容**:
+- B 站权限探测保存字幕语言和 URL；协议相对 URL 转为 HTTPS，并将接口字幕轨道补入探测结果。
+- router 把 `_subtitle_probe.subtitle_count > 0` 识别为 A 档。
+- `subtitles.py` 支持通过 yt-dlp session 获取 B 站字幕 JSON，生成标准 SRT 并转换为统一 Segment。
+- 缓存 key 版本升为 `v3`，避免旧 ASR 缓存污染新分流。
+- `force_asr=false` 默认保持；只有用户勾选强制 ASR，或明确选择 A_LOCKED 降级，才走 ASR。
+
+**真实验证**:
+- 视频 `https://www.bilibili.com/video/BV1Bo6oYaEVH/?vd_source=822fd3ba` 探测到 `ai-zh` 字幕，`need_login_subtitle=false`。
+- 8000 API 新任务 `c5a13ce7`：`pending -> fetching_subtitle -> completed`。
+- 最终 `resolved_tier=A`、`source=subtitle`、`subtitle_lang=ai-zh`，返回 583 段和 6762 字文本，没有进入下载或 ASR。
+
+**测试结果**:
+- `python -m compileall -q app tests run.py` 通过。
+- 全量测试 29 项通过。
+- 8000 服务重启和健康检查通过。
+
+**下一步计划**: task-024 - 结果持久化、导出与历史记录
+
+---
