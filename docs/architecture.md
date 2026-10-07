@@ -82,7 +82,7 @@ URL/分享文案
 
 SQLite 使用 WAL、外键和任务/分段索引。任务完成后按平台和日期写入 Markdown，文件名会清理路径字符和 emoji；落盘失败不会把本已完成的识别改成失败。缓存默认 30 天，可通过 `force=true` 绕过。
 
-Cookie Vault 按规范化域名隔离源文件，重建 `_merged.txt` 供下载器使用，并在 `_meta.json` 保存来源与健康状态。下载器按 URL 选择源文件和平台请求头，不向非 B 站请求注入 B 站 Referer。Cookie 使用细节见 [`guifan/COOKIE_GUIDE.md`](guifan/COOKIE_GUIDE.md)。
+Cookie Vault 按规范化域名隔离源文件，重建 `_merged.txt` 供下载器使用，并在 `_meta.json` 保存来源与健康状态。下载器按 URL 选择源文件和平台请求头，不向非 B 站请求注入 B 站 Referer。Cookie 使用细节见 [`cookie-guide.md`](cookie-guide.md)。
 
 CDN 签名参数在错误日志中会脱敏；导出和历史接口不返回 Cookie。项目不提供绕过付费墙的能力。
 
@@ -113,5 +113,5 @@ python run.py
 
 ```bash
 python -m unittest discover -s tests -v
-python -m compileall -q app tests run.py scripts/setup_douyin_cookie.py
+python -m compileall -q app run.py tools/setup_douyin_cookie.py
 ```

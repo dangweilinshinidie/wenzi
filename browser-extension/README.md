@@ -1,15 +1,31 @@
-# Wenzi Local Cookie Sync
+# Wenzi Chrome/Edge 本地 Cookie 同步扩展
 
-This extension avoids Chromium v20/App-Bound Cookie decryption by using the browser's own `chrome.cookies` API while the browser is running.
+这个未打包扩展使用 Chromium 官方 `chrome.cookies` API，在浏览器保持运行时读取已登录平台的 Cookie，并只同步到本机 Wenzi 服务：
 
-## Install in Chrome or Edge
+```text
+http://127.0.0.1:8000/api/cookie/browser-sync
+```
 
-1. Open `chrome://extensions` in Chrome or `edge://extensions` in Edge.
-2. Enable **Developer mode**.
-3. Choose **Load unpacked**.
-4. Select this `browser-extension` directory.
-5. Keep the browser logged in to Douyin/Bilibili or another supported platform.
+Cookie 值不会显示在扩展页面、接口响应或日志中。扩展不是 Chrome Web Store 发布版本，只应从可信的 Wenzi 项目目录加载。
 
-The extension synchronizes supported cookies to `http://127.0.0.1:8000`. It sends only to the local Wenzi service and the API never returns cookie values. The browser can remain open.
+## 安装
 
-If the extension is installed before the service starts, it retries on cookie changes and every five minutes. After installing, refresh the target platform once or wait for the next sync alarm.
+1. 启动 Wenzi：`python run.py`。
+2. Chrome 打开 `chrome://extensions`，Edge 打开 `edge://extensions`。
+3. 开启右上角的 **Developer mode / 开发者模式**。
+4. 点击 **Load unpacked / 加载已解压的扩展程序**。
+5. 选择本目录 `browser-extension`，不要选择其中的单个文件。
+6. 回到已登录抖音、B 站等平台的同一个浏览器配置文件，刷新目标平台页面。
+7. 返回 `http://127.0.0.1:8000/ui` 重新提交任务。
+
+扩展会在 Cookie 变化时同步，并通过定时任务周期性重试。浏览器可以保持打开，不需要手动复制 Cookie。
+
+## 权限与安全
+
+- 只请求 manifest 中列出的支持平台域名 Cookie 权限。
+- 只向本机 `127.0.0.1:8000` 发送同步请求，不向外部服务器发送 Cookie。
+- 不要把 `service_worker.js` 或扩展目录改造成向公网地址发送数据。
+- Cookie 等同于账号登录凭据；不要截图、分享、提交 Git 或粘贴到聊天中。
+- 卸载扩展：在扩展管理页面点击 **Remove / 移除**。
+
+如果扩展未同步成功，Wenzi 仍支持 yt-dlp 原生浏览器读取和手动 Cookie Vault。Windows Chrome 的数据库锁、DPAPI 和运行用户不一致可能影响原生读取，详见 [`../docs/cookie-guide.md`](../docs/cookie-guide.md)。

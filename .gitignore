@@ -1,29 +1,40 @@
-# 开源项目（通过 git clone 拉取）
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Python environments, caches and build artifacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Runtime data: tasks, cookies, databases, generated transcripts and media
+data/
+tmp/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Local browser profile copies / test artifacts
+.tmp_cookie_profiles/
+tmp_*
+NUL
+
+# Vendor source checkouts and large third-party binaries
 vendor/
 
-# 临时文件
-tmp/
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-dist/
-build/
-venv/
-.venv/
-
-# 环境配置
-.env
-
-# IDE
+# IDE / OS / agent-local configuration
 .vscode/
 .idea/
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Claude
 .claude/

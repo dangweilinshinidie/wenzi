@@ -1,6 +1,6 @@
 # Wenzi 项目代码地图
 
-> 基于当前工作区源码梳理，2026-10-03。工作区包含尚未提交的 Cookie API、静态前端和 Bilibili 下载兜底改动；以下记录的是实际文件现状，不代表这些改动已提交或端到端验收。
+> 基于当前源码整理，2026-10-03。本文用于维护者快速了解模块边界；普通用户请以根目录 `README.md` 和 `docs/project-status.md` 为准。
 
 ## 1. 项目概况
 
@@ -20,17 +20,15 @@ Wenzi 是一个 FastAPI 视频/音频转文字服务。当前主链路由 yt-dlp
 | `app/services/cookies.py` | 多平台 Cookie Vault、解析、原子合并、健康元数据、浏览器导入 | `CookieVault`, `parse_cookie_input`, `infer_domain`, `normalize_domain`, `browser_cookies` | 被 routes 和 downloader 调用；源文件按 domain 隔离 |
 | `app/services/platforms.py` | 平台能力提示表、最长域名优先识别 | `Platform`, `ResolvedTier`, `detect`, `all_platforms`, `unsupported_hint` | 被 routes 和 urlnorm 调用；只提供提示，不决定任务路由 |
 | `app/services/urlnorm.py` | 分享文案提取、短链解析、跟踪参数清理与缓存 | `clean_share_text`, `resolve_short_link`, `strip_tracking` | 被 routes 调用；解析失败时保留原 URL |
-| `tests/test_task022.py` | 平台识别与 URL 规范化单元测试 | 平台、清洗、缓存、重定向边界测试 | 不访问真实平台 |
-| `tests/test_task022_routes.py` | task-022 API 契约测试 | `/api/platforms`、`/api/detect` | TestClient + mock，不触发下载 |
+| `tests/` | 本次交付目录不保留测试源码 | 整理前已完成 29 项回归测试 | 测试源码应在独立开发分支维护 |
 | `app/services/audio.py` | ffmpeg 音频规格转换 | `convert_to_16k_wav` | 被 `_process_task` 调用；异步子进程执行 ffmpeg |
 | `app/services/asr.py` | FunASR 模型单例与识别 | `load_model`, `_recognize_sync`, `recognize` | 启动时预加载，任务中调用；线程池 `max_workers=2` |
 | `app/static/index.html` | 单页工作台：视频信息、任务轮询、分段展示、Markdown 导出、抖音 Cookie 配置 | `fetchVideoInfo`, `startExtract`, `pollTaskOnce`, `buildDocumentMarkdown`, `exportDocument`, `saveCookieAndCheck` | 调用 `/api/info`、`/api/extract`、`/api/task/{id}`、`/api/cookie/*` |
-| `scripts/setup_douyin_cookie.py` | 命令行将 Cookie 请求头写为 Netscape 文件，可选 yt-dlp 检测并更新 `.env` | `read_raw_cookie`, `parse_cookie_pairs`, `write_netscape_cookie_file`, `check_cookie_works`, `main` | 独立脚本，使用 yt-dlp |
-| `scripts/setup_douyin_cookie.bat` | Windows CLI 包装入口 | - | 调用同目录 Python 脚本 |
+| `tools/setup_douyin_cookie.py` | 命令行将 Cookie 请求头写为 Netscape 文件，可选 yt-dlp 检测并更新 `.env` | `read_raw_cookie`, `parse_cookie_pairs`, `write_netscape_cookie_file`, `check_cookie_works`, `main` | 独立脚本，使用 yt-dlp |
+| `tools/setup_douyin_cookie.bat` | Windows CLI 包装入口 | - | 调用同目录 Python 脚本 |
 | `requirements.txt` | Python 后端依赖 | - | 环境安装输入 |
-| `guifan/task.json` | 任务定义和 passes 状态 | task-001 至 task-026 | Agent 工作流程输入；task-001 至 task-018 为 true，019 起为 false |
-| `guifan/progress.txt` | 任务过程、验证证据和遗留信息 | Session 记录 | 后续开发交接依据 |
-| `guifan/PLAN_PLATFORM.md` | task-019 至 task-026 的平台策略计划 | 四档分流与任务拆分 | 设计约束参考 |
+| `dev/` | 开发历史已从交付目录移除 | 仅保留在 Git 历史中 | 不影响运行 |
+| `docs/platform-plan.md` | task-019 至 task-026 的平台策略计划 | 四档分流与任务拆分 | 设计约束参考 |
 
 ## 3. 入口、API 与接口契约
 
@@ -157,7 +155,7 @@ Task-021 五项问题的复现结果与修复证据：
 
 ## 9. task-001 至 task-018 交付边界
 
-`guifan/task.json` 当前显示 task-001 至 task-018 为 `passes: true`，日志记录了项目脚手架、yt-dlp/FunASR/ffmpeg 依赖、后端与任务编排、端口 8000 Swagger/API 验证、错误输入验证。task-017 的日志记录了 B站短视频完整 ASR 和时间戳验证。task-019 至 task-026 是后续平台化扩展工作。当前工作区增加了 Cookie API 和前端，但这些未提交修改不应误称为既有 task-001~018 的提交内容。
+历史任务日志已从用户交付目录移除；当前能力以源码、README 和 docs 文档为准。
 
 ## 10. 后续任务接入约束
 
