@@ -27,6 +27,7 @@ def load_model() -> AutoModel:
                     vad_model=settings.ASR_VAD_MODEL,
                     punc_model=settings.ASR_PUNC_MODEL,
                     trust_remote_code=True,
+                    disable_update=True,
                 )
     return _model
 
@@ -97,4 +98,3 @@ async def recognize(
         _executor,
         partial(_recognize_sync, audio_path, enable_timestamp),
     )
-
